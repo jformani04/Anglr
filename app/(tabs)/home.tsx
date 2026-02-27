@@ -84,7 +84,7 @@ export default function Home() {
       {/* Header with avatar */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Pressable onPress={() => router.push("/(tabs)/profile")}>
+          <Pressable onPress={() => router.push("/(tabs)/profile/index")}>
             {profile?.avatar_url ? (
               <Image
                 source={{ uri: profile.avatar_url }}
@@ -133,7 +133,7 @@ export default function Home() {
 
         <Pressable
           style={[styles.actionBubble, { width: cardWidth }]}
-          onPress={() => router.push("/(tabs)/favorites")}
+          onPress={() => router.push("/(tabs)/favorites/index")}
         >
           <View style={styles.actionIcon}>
             <Heart size={20} color={COLORS.primary} />

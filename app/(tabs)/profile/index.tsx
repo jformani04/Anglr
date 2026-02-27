@@ -1,7 +1,9 @@
 import { COLORS } from "@/lib/colors";
 import {
+  enableEmailLogin,
   getProfile,
   LengthUnit,
+  linkGoogleIdentity,
   requestDeleteAccount,
   TempUnit,
   upsertProfile,
@@ -57,6 +59,7 @@ export default function ProfileScreen() {
   const [email, setEmail] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [authProvider, setAuthProvider] = useState<string>("email");
+  const [authProviders, setAuthProviders] = useState<string[]>([]);
 
   const [modalType, setModalType] = useState<ModalType>("none");
   const [emailDraft, setEmailDraft] = useState("");
@@ -77,6 +80,7 @@ export default function ProfileScreen() {
         setEmailDraft(profile.email);
         setAvatarUrl(profile.avatarUrl);
         setAuthProvider(profile.authProvider);
+        setAuthProviders(profile.authProviders);
       } catch (err: any) {
         Alert.alert("Profile Error", err?.message ?? "Unable to load profile.");
       } finally {
@@ -134,6 +138,15 @@ export default function ProfileScreen() {
   };
 
   const handleChangeEmail = async () => {
+    if (!authProviders.includes("email")) {
+      Alert.alert(
+        "Google Account",
+        "You're signed in with Google. Your email is managed through your Google account."
+      );
+      setModalType("none");
+      return;
+    }
+
     try {
       const { error } = await supabase.auth.updateUser({ email: emailDraft.trim() });
       if (error) throw error;
@@ -149,7 +162,7 @@ export default function ProfileScreen() {
   };
 
   const handleChangePasswordPress = () => {
-    if (authProvider === "google") {
+    if (authProvider === "google" && !authProviders.includes("email")) {
       Alert.alert(
         "Google Account",
         "You're signed in with Google. Password changes are managed through your Google account."
@@ -157,6 +170,41 @@ export default function ProfileScreen() {
       return;
     }
     setModalType("password");
+  };
+
+  const handleChangeEmailPress = () => {
+    if (!authProviders.includes("email")) {
+      Alert.alert(
+        "Google Account",
+        "You're signed in with Google. Your email is managed through your Google account."
+      );
+      return;
+    }
+    setModalType("email");
+  };
+
+  const handleLinkGoogle = async () => {
+    try {
+      await linkGoogleIdentity();
+      const refreshed = await getProfile();
+      setAuthProvider(refreshed.authProvider);
+      setAuthProviders(refreshed.authProviders);
+      Alert.alert("Linked", "Google account linked successfully.");
+    } catch (err: any) {
+      Alert.alert("Link Failed", err?.message ?? "Unable to link Google account.");
+    }
+  };
+
+  const handleEnableEmailLogin = async () => {
+    try {
+      await enableEmailLogin(email);
+      Alert.alert(
+        "Check your email",
+        "We sent a link to set your password and enable email login."
+      );
+    } catch (err: any) {
+      Alert.alert("Request Failed", err?.message ?? "Unable to send password setup email.");
+    }
   };
 
   const handleChangePassword = async () => {
@@ -409,7 +457,7 @@ export default function ProfileScreen() {
 
         <View>
           <Text style={styles.sectionLabel}>Security</Text>
-          <Pressable style={styles.actionCard} onPress={() => setModalType("email")}>
+          <Pressable style={styles.actionCard} onPress={handleChangeEmailPress}>
             <View style={styles.actionIcon}>
               <Mail color={COLORS.primary} size={20} strokeWidth={2} />
             </View>
@@ -428,6 +476,30 @@ export default function ProfileScreen() {
               <Text style={styles.actionSub}>Update your password</Text>
             </View>
           </Pressable>
+
+          {authProviders.includes("email") && !authProviders.includes("google") && (
+            <Pressable style={styles.actionCard} onPress={handleLinkGoogle}>
+              <View style={styles.actionIcon}>
+                <Mail color={COLORS.primary} size={20} strokeWidth={2} />
+              </View>
+              <View>
+                <Text style={styles.actionTitle}>Link Google Account</Text>
+                <Text style={styles.actionSub}>Use Google and password on one account</Text>
+              </View>
+            </Pressable>
+          )}
+
+          {authProviders.includes("google") && !authProviders.includes("email") && (
+            <Pressable style={styles.actionCard} onPress={handleEnableEmailLogin}>
+              <View style={styles.actionIcon}>
+                <Lock color={COLORS.primary} size={20} strokeWidth={2} />
+              </View>
+              <View>
+                <Text style={styles.actionTitle}>Enable Email Login</Text>
+                <Text style={styles.actionSub}>Set a password for this account</Text>
+              </View>
+            </Pressable>
+          )}
         </View>
 
         <View>

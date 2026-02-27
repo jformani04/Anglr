@@ -1,4 +1,8 @@
 import { supabase } from "@/lib/supabase";
+import * as AuthSession from "expo-auth-session";
+import * as WebBrowser from "expo-web-browser";
+import * as QueryParams from "expo-auth-session/build/QueryParams";
+import { getPrimaryProvider, getUserProviders } from "@/lib/authProviders";
 
 const DEBUG = process.env.EXPO_PUBLIC_DEBUG === "1";
 
@@ -17,6 +21,7 @@ export type Profile = {
   unitsWeight: WeightUnit;
   unitsTemp: TempUnit;
   authProvider: string;
+  authProviders: string[];
 };
 
 type ProfileRow = {
@@ -120,11 +125,83 @@ export async function getProfile(): Promise<Profile> {
     unitsLength: normalizeUnitLength((row as any).units_length),
     unitsWeight: normalizeUnitWeight((row as any).units_weight),
     unitsTemp: normalizeUnitTemp((row as any).units_temp),
-    authProvider: (user.app_metadata?.provider as string) ?? "email",
+    authProvider: getPrimaryProvider(user),
+    authProviders: getUserProviders(user),
   };
 
   dlog("fetched profile", profile);
   return profile;
+}
+
+WebBrowser.maybeCompleteAuthSession();
+
+export async function linkGoogleIdentity(): Promise<void> {
+  const redirectUri = AuthSession.makeRedirectUri({
+    scheme: "fishapp",
+    path: "auth/callback",
+  });
+
+  const authClient: any = supabase.auth as any;
+  if (typeof authClient.linkIdentity !== "function") {
+    throw new Error("Identity linking is not supported by the current auth client.");
+  }
+
+  const { data, error } = await authClient.linkIdentity({
+    provider: "google",
+    options: {
+      redirectTo: redirectUri,
+      skipBrowserRedirect: true,
+    },
+  });
+
+  if (error) throw error;
+  if (!data?.url) return;
+
+  const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUri);
+  if (result.type !== "success") {
+    throw new Error("Google linking canceled");
+  }
+
+  const { params: queryParams } = QueryParams.getQueryParams(result.url);
+  const hash = result.url.split("#")[1] ?? "";
+  const hashParams = new URLSearchParams(hash);
+  const accessToken =
+    (queryParams.access_token as string | undefined) ??
+    hashParams.get("access_token") ??
+    undefined;
+  const refreshToken =
+    (queryParams.refresh_token as string | undefined) ??
+    hashParams.get("refresh_token") ??
+    undefined;
+  const code =
+    (queryParams.code as string | undefined) ?? hashParams.get("code") ?? undefined;
+
+  if (accessToken && refreshToken) {
+    const { error: sessionError } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+    if (sessionError) throw sessionError;
+    return;
+  }
+
+  if (code) {
+    const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+    if (exchangeError) throw exchangeError;
+    return;
+  }
+}
+
+export async function enableEmailLogin(email: string): Promise<void> {
+  const redirectTo = AuthSession.makeRedirectUri({
+    scheme: "fishapp",
+    path: "auth/callback",
+  });
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo,
+  });
+  if (error) throw error;
 }
 
 export async function upsertProfile(updates: ProfileUpdates): Promise<void> {
