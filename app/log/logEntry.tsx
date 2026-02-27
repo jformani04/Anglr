@@ -125,7 +125,7 @@ export default function LogEntry() {
       });
 
       Alert.alert("Catch Logged", "Your catch was saved.", [
-        { text: "View Catches", onPress: () => router.replace("/(tabs)/catches") },
+        { text: "View Catches", onPress: () => router.replace("/catches") },
       ]);
     } catch (err: any) {
       Alert.alert("Save Failed", err?.message ?? "Unable to save catch.");

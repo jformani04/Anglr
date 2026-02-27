@@ -8,7 +8,7 @@ export default function AuthCallbackScreen() {
     // Auth state listener in app/_layout will usually redirect to home.
     // This fallback prevents users from getting stuck on the callback route.
     const timer = setTimeout(() => {
-      router.replace("/(tabs)/home");
+      router.replace("/home");
     }, 1200);
 
     return () => clearTimeout(timer);

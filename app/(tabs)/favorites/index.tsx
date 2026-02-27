@@ -68,7 +68,7 @@ export default function FavoritesScreen() {
 
   const handleEditCatch = (catchLog: CatchLog) => {
     router.push({
-      pathname: "/(tabs)/catches/[catchId]",
+      pathname: "/catches/[catchId]",
       params: { catchId: catchLog.id },
     });
   };

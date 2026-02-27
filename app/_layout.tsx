@@ -17,7 +17,7 @@ export default function RootLayout() {
 
       if (data.session) {
         if (!inProtectedSignedInRoute) {
-          router.replace("/(tabs)/home");
+          router.replace("/home");
         }
       } else if (inProtectedSignedInRoute) {
         router.replace("/");
@@ -28,7 +28,7 @@ export default function RootLayout() {
       // Ignore token refresh/update events to avoid replace loops.
       if (event === "SIGNED_IN" && session) {
         if (!inProtectedSignedInRoute) {
-          router.replace("/(tabs)/home");
+          router.replace("/home");
         }
       }
 

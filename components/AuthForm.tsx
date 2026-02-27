@@ -136,7 +136,7 @@ export default function AuthForm({ mode }: AuthFormProps) {
       }
 
       if (data.session) {
-        router.replace("/(tabs)/home");
+        router.replace("/home");
         return { success: true, session: data.session };
       }
 
@@ -166,7 +166,7 @@ export default function AuthForm({ mode }: AuthFormProps) {
       }
 
       if (data.session) {
-        router.replace("/(tabs)/home");
+        router.replace("/home");
         return { success: true, session: data.session };
       }
 

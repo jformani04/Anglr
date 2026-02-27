@@ -151,7 +151,7 @@ export default function EditCatchScreen() {
             setDeleting(true);
             await deleteCatchLog(catchId);
             Alert.alert("Deleted", "Catch log deleted.");
-            router.replace("/(tabs)/catches");
+            router.replace("/catches");
           } catch (err: any) {
             Alert.alert("Delete Failed", err?.message ?? "Unable to delete catch.");
           } finally {
