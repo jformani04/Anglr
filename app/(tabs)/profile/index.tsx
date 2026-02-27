@@ -1,6 +1,5 @@
 import { COLORS } from "@/lib/colors";
 import {
-  enableEmailLogin,
   getProfile,
   LengthUnit,
   linkGoogleIdentity,
@@ -21,7 +20,7 @@ import {
   Mail,
   Trash2,
 } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -64,6 +63,10 @@ export default function ProfileScreen() {
   const [modalType, setModalType] = useState<ModalType>("none");
   const [emailDraft, setEmailDraft] = useState("");
   const [passwordDraft, setPasswordDraft] = useState("");
+  const hydratedRef = useRef(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedRef = useRef("");
+  const isGoogleSignedIn = authProvider === "google";
 
   useEffect(() => {
     const load = async () => {
@@ -81,6 +84,15 @@ export default function ProfileScreen() {
         setAvatarUrl(profile.avatarUrl);
         setAuthProvider(profile.authProvider);
         setAuthProviders(profile.authProviders);
+        lastSavedRef.current = JSON.stringify({
+          username: profile.username,
+          bio: profile.bio,
+          unitsLength: profile.unitsLength,
+          unitsWeight: profile.unitsWeight,
+          unitsTemp: profile.unitsTemp,
+          avatarUrl: profile.avatarUrl,
+        });
+        hydratedRef.current = true;
       } catch (err: any) {
         Alert.alert("Profile Error", err?.message ?? "Unable to load profile.");
       } finally {
@@ -91,24 +103,36 @@ export default function ProfileScreen() {
     load();
   }, []);
 
-  const saveProfile = async () => {
-    try {
-      setSaving(true);
-      await upsertProfile({
-        username,
-        bio,
-        unitsLength: lengthUnit,
-        unitsWeight: weightUnit,
-        unitsTemp: temperatureUnit,
-        avatarUrl,
-      });
-      Alert.alert("Saved", "Profile updated.");
-    } catch (err: any) {
-      Alert.alert("Save Failed", err?.message ?? "Unable to save profile.");
-    } finally {
-      setSaving(false);
-    }
-  };
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    const payload = {
+      username,
+      bio,
+      unitsLength: lengthUnit,
+      unitsWeight: weightUnit,
+      unitsTemp: temperatureUnit,
+      avatarUrl,
+    };
+    const nextSerialized = JSON.stringify(payload);
+    if (nextSerialized === lastSavedRef.current) return;
+
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(async () => {
+      try {
+        setSaving(true);
+        await upsertProfile(payload);
+        lastSavedRef.current = nextSerialized;
+      } catch (err: any) {
+        Alert.alert("Save Failed", err?.message ?? "Unable to save profile.");
+      } finally {
+        setSaving(false);
+      }
+    }, 500);
+
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [username, bio, lengthUnit, weightUnit, temperatureUnit, avatarUrl]);
 
   const changeAvatar = async () => {
     try {
@@ -128,8 +152,6 @@ export default function ProfileScreen() {
       setUploadingAvatar(true);
       const nextUrl = await uploadAvatar(result.assets[0].uri);
       setAvatarUrl(nextUrl);
-      await upsertProfile({ avatarUrl: nextUrl });
-      Alert.alert("Updated", "Profile photo updated.");
     } catch (err: any) {
       Alert.alert("Upload Failed", err?.message ?? "Unable to upload avatar.");
     } finally {
@@ -162,24 +184,10 @@ export default function ProfileScreen() {
   };
 
   const handleChangePasswordPress = () => {
-    if (authProvider === "google" && !authProviders.includes("email")) {
-      Alert.alert(
-        "Google Account",
-        "You're signed in with Google. Password changes are managed through your Google account."
-      );
-      return;
-    }
     setModalType("password");
   };
 
   const handleChangeEmailPress = () => {
-    if (!authProviders.includes("email")) {
-      Alert.alert(
-        "Google Account",
-        "You're signed in with Google. Your email is managed through your Google account."
-      );
-      return;
-    }
     setModalType("email");
   };
 
@@ -192,18 +200,6 @@ export default function ProfileScreen() {
       Alert.alert("Linked", "Google account linked successfully.");
     } catch (err: any) {
       Alert.alert("Link Failed", err?.message ?? "Unable to link Google account.");
-    }
-  };
-
-  const handleEnableEmailLogin = async () => {
-    try {
-      await enableEmailLogin(email);
-      Alert.alert(
-        "Check your email",
-        "We sent a link to set your password and enable email login."
-      );
-    } catch (err: any) {
-      Alert.alert("Request Failed", err?.message ?? "Unable to send password setup email.");
     }
   };
 
@@ -328,15 +324,7 @@ export default function ProfileScreen() {
               placeholderTextColor={COLORS.textSecondary}
             />
 
-            <Pressable
-              onPress={saveProfile}
-              style={[styles.saveButton, saving && { opacity: 0.7 }]}
-              disabled={saving}
-            >
-              <Text style={styles.saveButtonText}>
-                {saving ? "Saving..." : "Save Changes"}
-              </Text>
-            </Pressable>
+            {saving ? <Text style={styles.autoSaveText}>Saving changes...</Text> : null}
           </View>
         </View>
 
@@ -457,25 +445,56 @@ export default function ProfileScreen() {
 
         <View>
           <Text style={styles.sectionLabel}>Security</Text>
-          <Pressable style={styles.actionCard} onPress={handleChangeEmailPress}>
-            <View style={styles.actionIcon}>
-              <Mail color={COLORS.primary} size={20} strokeWidth={2} />
+          <Pressable
+            style={[styles.actionCard, isGoogleSignedIn && styles.actionCardDisabled]}
+            onPress={isGoogleSignedIn ? undefined : handleChangeEmailPress}
+            disabled={isGoogleSignedIn}
+          >
+            <View style={[styles.actionIcon, isGoogleSignedIn && styles.actionIconDisabled]}>
+              <Mail
+                color={isGoogleSignedIn ? COLORS.textSecondary : COLORS.primary}
+                size={20}
+                strokeWidth={2}
+              />
             </View>
             <View>
-              <Text style={styles.actionTitle}>Change Email</Text>
-              <Text style={styles.actionSub}>{email || "-"}</Text>
+              <Text style={[styles.actionTitle, isGoogleSignedIn && styles.actionTextDisabled]}>
+                Change Email
+              </Text>
+              <Text style={[styles.actionSub, isGoogleSignedIn && styles.actionTextDisabled]}>
+                {email || "-"}
+              </Text>
             </View>
           </Pressable>
 
-          <Pressable style={styles.actionCard} onPress={handleChangePasswordPress}>
-            <View style={styles.actionIcon}>
-              <Lock color={COLORS.primary} size={20} strokeWidth={2} />
+          <Pressable
+            style={[styles.actionCard, isGoogleSignedIn && styles.actionCardDisabled]}
+            onPress={isGoogleSignedIn ? undefined : handleChangePasswordPress}
+            disabled={isGoogleSignedIn}
+          >
+            <View style={[styles.actionIcon, isGoogleSignedIn && styles.actionIconDisabled]}>
+              <Lock
+                color={isGoogleSignedIn ? COLORS.textSecondary : COLORS.primary}
+                size={20}
+                strokeWidth={2}
+              />
             </View>
             <View>
-              <Text style={styles.actionTitle}>Change Password</Text>
-              <Text style={styles.actionSub}>Update your password</Text>
+              <Text style={[styles.actionTitle, isGoogleSignedIn && styles.actionTextDisabled]}>
+                Change Password
+              </Text>
+              <Text style={[styles.actionSub, isGoogleSignedIn && styles.actionTextDisabled]}>
+                Update your password
+              </Text>
             </View>
           </Pressable>
+
+          {isGoogleSignedIn ? (
+            <Text style={styles.securityNotice}>
+              You are signed in with Google, so email and password changes are managed by your
+              Google account.
+            </Text>
+          ) : null}
 
           {authProviders.includes("email") && !authProviders.includes("google") && (
             <Pressable style={styles.actionCard} onPress={handleLinkGoogle}>
@@ -489,17 +508,6 @@ export default function ProfileScreen() {
             </Pressable>
           )}
 
-          {authProviders.includes("google") && !authProviders.includes("email") && (
-            <Pressable style={styles.actionCard} onPress={handleEnableEmailLogin}>
-              <View style={styles.actionIcon}>
-                <Lock color={COLORS.primary} size={20} strokeWidth={2} />
-              </View>
-              <View>
-                <Text style={styles.actionTitle}>Enable Email Login</Text>
-                <Text style={styles.actionSub}>Set a password for this account</Text>
-              </View>
-            </Pressable>
-          )}
         </View>
 
         <View>
@@ -676,17 +684,10 @@ const styles = StyleSheet.create({
     minHeight: 90,
     textAlignVertical: "top",
   },
-  saveButton: {
+  autoSaveText: {
     marginTop: 12,
-    backgroundColor: COLORS.primary,
-    borderRadius: 999,
-    alignItems: "center",
-    paddingVertical: 12,
-  },
-  saveButtonText: {
-    color: COLORS.text,
-    fontSize: 14,
-    fontWeight: "700",
+    color: COLORS.textSecondary,
+    fontSize: 12,
   },
   prefCard: {
     backgroundColor: "rgba(221,220,219,0.08)",
@@ -744,6 +745,9 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 10,
   },
+  actionCardDisabled: {
+    opacity: 0.5,
+  },
   actionIcon: {
     width: 44,
     height: 44,
@@ -751,6 +755,9 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(253,123,65,0.15)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  actionIconDisabled: {
+    backgroundColor: "rgba(221,220,219,0.12)",
   },
   actionTitle: {
     color: COLORS.text,
@@ -761,6 +768,16 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     fontSize: 12,
     marginTop: 2,
+  },
+  actionTextDisabled: {
+    color: COLORS.textSecondary,
+  },
+  securityNotice: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: -2,
+    marginBottom: 10,
   },
   deleteCard: {
     backgroundColor: "rgba(220,38,38,0.1)",

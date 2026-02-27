@@ -32,6 +32,7 @@ export default function Home() {
   const { profile, loading } = useAuth();
   const isFocused = useIsFocused();
   const [stats, setStats] = useState({ totalCatches: 0, speciesCount: 0 });
+  const [statsLoading, setStatsLoading] = useState(true);
 
   // Two-column card width calculation
   const H_PADDING = 48;
@@ -49,28 +50,32 @@ export default function Home() {
     if (!isFocused) return;
 
     const loadStats = async () => {
+      setStatsLoading(true);
       const {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) {
         setStats({ totalCatches: 0, speciesCount: 0 });
+        setStatsLoading(false);
         return;
       }
 
       const catches = await getUserCatchLogs(user.id);
       setStats(getCatchStats(catches));
+      setStatsLoading(false);
     };
 
     loadStats().catch(() => {
       setStats({ totalCatches: 0, speciesCount: 0 });
+      setStatsLoading(false);
     });
   }, [isFocused]);
 
-  if (loading) {
+  if (loading || statsLoading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={styles.loadingText}>Loading your profile...</Text>
+        <Text style={styles.loadingText}>Loading your dashboard...</Text>
       </View>
     );
   }
@@ -109,13 +114,6 @@ export default function Home() {
           <LogOut size={20} color={COLORS.textSecondary} />
         </Pressable>
       </View>
-
-      {/* Bio bubble */}
-      {profile?.bio ? (
-        <View style={styles.bioBubble}>
-          <Text style={styles.bioText}>{profile.bio}</Text>
-        </View>
-      ) : null}
 
       <ScanButton />
 
