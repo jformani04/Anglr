@@ -1,19 +1,23 @@
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/auth/AuthProvider";
 import { COLORS } from "@/lib/colors";
-import { getCatchStats, getUserCatchLogs } from "@/lib/catches";
+import { CatchLog, getCatchStats, getUserCatchLogs } from "@/lib/catches";
 import { router } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { useEffect, useState } from "react";
 import {
   Clock,
+  Calendar,
   Eye,
   Fish,
   Heart,
   Library,
   LogOut,
+  MapPin,
+  Ruler,
   TrendingUp,
   User,
+  Weight,
 } from "lucide-react-native";
 import {
   ActivityIndicator,
@@ -32,6 +36,7 @@ export default function Home() {
   const { profile, loading } = useAuth();
   const isFocused = useIsFocused();
   const [stats, setStats] = useState({ totalCatches: 0, speciesCount: 0 });
+  const [recentCatch, setRecentCatch] = useState<CatchLog | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
   // Two-column card width calculation
@@ -62,11 +67,13 @@ export default function Home() {
 
       const catches = await getUserCatchLogs(user.id);
       setStats(getCatchStats(catches));
+      setRecentCatch(catches[0] ?? null);
       setStatsLoading(false);
     };
 
     loadStats().catch(() => {
       setStats({ totalCatches: 0, speciesCount: 0 });
+      setRecentCatch(null);
       setStatsLoading(false);
     });
   }, [isFocused]);
@@ -182,10 +189,42 @@ export default function Home() {
             <Clock size={18} color={COLORS.primary} />
           </View>
           <View style={styles.activityContent}>
-            <Text style={styles.activityTitle}>No recent activity</Text>
-            <Text style={styles.activitySub}>
-              Start by scanning your first catch
-            </Text>
+            {recentCatch ? (
+              <>
+                <Text style={styles.activityTitle}>
+                  Last catch: {recentCatch.species || "Unknown Species"}
+                </Text>
+                <View style={styles.activityMetaRow}>
+                  <Ruler size={12} color={COLORS.primary} />
+                  <Text style={styles.activityMetaText}>
+                    {recentCatch.length || "-"}
+                  </Text>
+                  <Text style={styles.activityMetaDot}>•</Text>
+                  <Weight size={12} color={COLORS.primary} />
+                  <Text style={styles.activityMetaText}>
+                    {recentCatch.weight || "-"}
+                  </Text>
+                </View>
+                <View style={styles.activityMetaRow}>
+                  <MapPin size={12} color={COLORS.primary} />
+                  <Text style={styles.activityMetaText} numberOfLines={1}>
+                    {recentCatch.location || "Unknown location"}
+                  </Text>
+                  <Text style={styles.activityMetaDot}>•</Text>
+                  <Calendar size={12} color={COLORS.primary} />
+                  <Text style={styles.activityMetaText} numberOfLines={1}>
+                    {recentCatch.date || "No date"}
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={styles.activityTitle}>No recent activity</Text>
+                <Text style={styles.activitySub}>
+                  Start by scanning your first catch
+                </Text>
+              </>
+            )}
           </View>
         </View>
       </View>
@@ -385,6 +424,21 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     fontSize: 13,
     marginTop: 4,
+  },
+  activityMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 5,
+  },
+  activityMetaText: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    flexShrink: 1,
+  },
+  activityMetaDot: {
+    color: COLORS.textSecondary,
+    fontSize: 11,
   },
 
   row: {

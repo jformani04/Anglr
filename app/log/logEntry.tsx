@@ -1,6 +1,7 @@
 import { COLORS } from "@/lib/colors";
 import { createCatchLog } from "@/lib/catches";
 import { router, useLocalSearchParams } from "expo-router";
+import * as Location from "expo-location";
 import {
   ArrowLeft,
   Check,
@@ -38,6 +39,20 @@ const METHODS = [
 const PLACEHOLDER_IMAGE =
   "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&q=80";
 
+function formatDate(date: Date) {
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatLocationLabel(geo: Location.LocationGeocodedAddress) {
+  const locality = geo.city || geo.subregion || geo.region || "";
+  const area = geo.region || geo.country || "";
+  return [locality, area].filter(Boolean).join(", ");
+}
+
 export default function LogEntry() {
   const { imageUri, draftId } = useLocalSearchParams<{ imageUri?: string; draftId?: string }>();
   const { width } = useWindowDimensions();
@@ -54,6 +69,7 @@ export default function LogEntry() {
     length: "",
     weight: "",
     location: "",
+    date: formatDate(new Date()),
     temperature: "",
     weather: "",
     lure: "",
@@ -71,12 +87,43 @@ export default function LogEntry() {
       length: "",
       weight: "",
       location: "",
+      date: formatDate(new Date()),
       temperature: "",
       weather: "",
       lure: "",
       method: "Fly",
       notes: "",
     });
+
+    let cancelled = false;
+
+    const prefillLocation = async () => {
+      try {
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (permission.status !== "granted" || cancelled) return;
+
+        const current = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (cancelled) return;
+
+        const geocoded = await Location.reverseGeocodeAsync(current.coords);
+        if (cancelled || !geocoded.length) return;
+
+        const label = formatLocationLabel(geocoded[0]);
+        if (!label) return;
+
+        setFormData((prev) => (prev.location ? prev : { ...prev, location: label }));
+      } catch {
+        // Location prefill is best-effort and should not block logging.
+      }
+    };
+
+    prefillLocation();
+
+    return () => {
+      cancelled = true;
+    };
   }, [imageUri, draftId]);
 
   const speciesPredictions = [
@@ -101,12 +148,6 @@ export default function LogEntry() {
     try {
       setSaving(true);
 
-      const date = new Date().toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      });
-
       await createCatchLog({
         imageUrl: imageUri ?? "",
         species: formData.species,
@@ -121,7 +162,7 @@ export default function LogEntry() {
         isPublic,
         isFavorite: false,
         hideLocation,
-        date,
+        date: formData.date,
       });
 
       Alert.alert("Catch Logged", "Your catch was saved.", [
@@ -263,6 +304,17 @@ export default function LogEntry() {
               placeholderTextColor={COLORS.textSecondary}
               value={formData.location}
               onChangeText={(text) => handleInputChange("location", text)}
+              style={styles.textInput}
+            />
+          </View>
+
+          <View style={styles.bubble}>
+            <Text style={styles.label}>Date</Text>
+            <TextInput
+              placeholder="Mar 1, 2026"
+              placeholderTextColor={COLORS.textSecondary}
+              value={formData.date}
+              onChangeText={(text) => handleInputChange("date", text)}
               style={styles.textInput}
             />
           </View>

@@ -26,6 +26,12 @@
       "expo-secure-store",
       "expo-web-browser",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow Anglr to use your location to prefill catch location."
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "Allow Anglr to access your camera",

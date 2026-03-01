@@ -158,66 +158,73 @@ export default function CatchesScreen() {
               onPress={() => handleEditCatch(catchLog)}
               style={styles.card}
             >
-              <View style={styles.imageWrap}>
-                {catchLog.imageUrl ? (
-                  <Image source={{ uri: catchLog.imageUrl }} style={styles.image} />
-                ) : (
-                  <View style={[styles.image, styles.imageFallback]}>
-                    <FishIcon color={COLORS.primary} size={28} strokeWidth={2} />
-                  </View>
-                )}
-                <View style={styles.imageOverlay} />
-                <View style={styles.speciesBadge}>
-                  <Text style={styles.speciesBadgeText}>
-                    {catchLog.species || "Unknown Species"}
-                  </Text>
-                </View>
-                <View style={styles.privacyBadge}>
-                  <Text style={styles.privacyBadgeText}>
-                    {catchLog.isPublic ? "Public" : "Private"}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.cardBody}>
-                <View style={styles.inlineRow}>
-                  <Calendar color={COLORS.primary} size={15} strokeWidth={2} />
-                  <Text style={styles.metaText}>{catchLog.date || "No date"}</Text>
+              <View style={styles.cardRow}>
+                <View style={styles.thumbWrap}>
+                  {catchLog.imageUrl ? (
+                    <Image source={{ uri: catchLog.imageUrl }} style={styles.thumbImage} />
+                  ) : (
+                    <View style={[styles.thumbImage, styles.imageFallback]}>
+                      <FishIcon color={COLORS.primary} size={24} strokeWidth={2} />
+                    </View>
+                  )}
                 </View>
 
-                <View style={styles.statsGrid}>
-                  <View style={styles.statItem}>
-                    <View style={styles.statIconWrap}>
-                      <Ruler color={COLORS.primary} size={14} strokeWidth={2} />
-                    </View>
-                    <View>
-                      <Text style={styles.statLabel}>Length</Text>
-                      <Text style={styles.statValue}>{catchLog.length || "-"}</Text>
-                    </View>
-                  </View>
-                  <View style={styles.statItem}>
-                    <View style={styles.statIconWrap}>
-                      <Weight color={COLORS.primary} size={14} strokeWidth={2} />
-                    </View>
-                    <View>
-                      <Text style={styles.statLabel}>Weight</Text>
-                      <Text style={styles.statValue}>{catchLog.weight || "-"}</Text>
+                <View style={styles.cardContent}>
+                  <View style={styles.cardHeaderRow}>
+                    <Text style={styles.speciesTitle} numberOfLines={1}>
+                      {catchLog.species || "Unknown Species"}
+                    </Text>
+                    <View
+                      style={[
+                        styles.visibilityPill,
+                        catchLog.isPublic
+                          ? styles.visibilityPillPublic
+                          : styles.visibilityPillPrivate,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.visibilityPillText,
+                          catchLog.isPublic
+                            ? styles.visibilityPillTextPublic
+                            : styles.visibilityPillTextPrivate,
+                        ]}
+                      >
+                        {catchLog.isPublic ? "Public" : "Private"}
+                      </Text>
                     </View>
                   </View>
-                </View>
 
-                <View style={styles.inlineRow}>
-                  <MapPin color={COLORS.primary} size={15} strokeWidth={2} />
-                  <Text style={styles.locationText}>
-                    {catchLog.location || "Unknown location"}
-                  </Text>
-                </View>
+                  <View style={styles.lengthWeightRow}>
+                    <View style={styles.inlineRow}>
+                      <Ruler color={COLORS.primary} size={12} strokeWidth={2} />
+                      <Text style={styles.metaText}>{catchLog.length || "-"}</Text>
+                    </View>
+                    <Text style={styles.dot}>•</Text>
+                    <View style={styles.inlineRow}>
+                      <Weight color={COLORS.primary} size={12} strokeWidth={2} />
+                      <Text style={styles.metaText}>{catchLog.weight || "-"}</Text>
+                    </View>
+                  </View>
 
-                {!!catchLog.notes && (
-                  <Text style={styles.notesPreview} numberOfLines={2}>
-                    {catchLog.notes}
-                  </Text>
-                )}
+                  <View style={styles.locationDateRow}>
+                    <MapPin color={COLORS.primary} size={12} strokeWidth={2} />
+                    <Text style={styles.locationText} numberOfLines={1}>
+                      {catchLog.location || "Unknown location"}
+                    </Text>
+                    <Text style={styles.dot}>•</Text>
+                    <Calendar color={COLORS.primary} size={12} strokeWidth={2} />
+                    <Text style={styles.dateText} numberOfLines={1}>
+                      {catchLog.date || "No date"}
+                    </Text>
+                  </View>
+
+                  {!!catchLog.notes && (
+                    <Text style={styles.notesPreview} numberOfLines={1}>
+                      {catchLog.notes}
+                    </Text>
+                  )}
+                </View>
               </View>
             </Pressable>
           ))}
@@ -233,7 +240,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   contentContainer: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 16,
     paddingTop: 48,
     paddingBottom: 32,
   },
@@ -352,20 +359,28 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   list: {
-    gap: 14,
+    gap: 10,
   },
   card: {
     backgroundColor: "rgba(221,220,219,0.08)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.15)",
-    borderRadius: 24,
+    borderRadius: 18,
     overflow: "hidden",
   },
-  imageWrap: {
-    height: 190,
-    position: "relative",
+  cardRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 10,
   },
-  image: {
+  thumbWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  thumbImage: {
     width: "100%",
     height: "100%",
     resizeMode: "cover",
@@ -375,93 +390,86 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  imageOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.25)",
+  cardContent: {
+    flex: 1,
+    minWidth: 0,
   },
-  speciesBadge: {
-    position: "absolute",
-    top: 12,
-    left: 12,
-    backgroundColor: "rgba(253,123,65,0.95)",
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.2)",
-    maxWidth: "70%",
+  cardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 8,
   },
-  speciesBadgeText: {
+  speciesTitle: {
     color: COLORS.text,
-    fontSize: 13,
+    fontSize: 16,
+    fontWeight: "700",
+    flex: 1,
+  },
+  visibilityPill: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  visibilityPillPublic: {
+    backgroundColor: "rgba(34,197,94,0.2)",
+    borderColor: "rgba(74,222,128,0.35)",
+  },
+  visibilityPillPrivate: {
+    backgroundColor: "rgba(253,123,65,0.2)",
+    borderColor: "rgba(253,123,65,0.35)",
+  },
+  visibilityPillText: {
+    fontSize: 10,
     fontWeight: "700",
   },
-  privacyBadge: {
-    position: "absolute",
-    top: 12,
-    right: 12,
-    backgroundColor: "rgba(0,0,0,0.65)",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.2)",
+  visibilityPillTextPublic: {
+    color: "#4ade80",
   },
-  privacyBadgeText: {
-    color: COLORS.text,
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  cardBody: {
-    padding: 16,
-    gap: 10,
+  visibilityPillTextPrivate: {
+    color: COLORS.primary,
   },
   inlineRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  lengthWeightRow: {
+    marginTop: 4,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
   metaText: {
     color: COLORS.textSecondary,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "500",
   },
-  statsGrid: {
-    flexDirection: "row",
-    gap: 14,
-  },
-  statItem: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  statIconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(253,123,65,0.15)",
-  },
-  statLabel: {
+  dot: {
     color: COLORS.textSecondary,
     fontSize: 11,
   },
-  statValue: {
-    color: COLORS.text,
-    fontSize: 13,
-    fontWeight: "700",
+  locationDateRow: {
+    marginTop: 5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
   locationText: {
-    color: COLORS.text,
-    fontSize: 14,
-    fontWeight: "600",
-    flex: 1,
+    color: COLORS.textSecondary,
+    fontSize: 11,
+    flexShrink: 1,
+  },
+  dateText: {
+    color: COLORS.textSecondary,
+    fontSize: 11,
+    flexShrink: 1,
   },
   notesPreview: {
+    marginTop: 5,
     color: COLORS.textSecondary,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 11,
+    lineHeight: 14,
   },
 });
