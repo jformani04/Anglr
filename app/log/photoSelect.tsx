@@ -98,7 +98,7 @@ export default function PhotoSelectScreen() {
       <Pressable
         style={styles.skipButton}
         onPress={() =>
-          router.push({ pathname: "/catches/new" })
+          router.push({ pathname: "/catches/[catchId]", params: { catchId: "new" } })
         }
       >
         <Text style={styles.skipText}>Log without a photo</Text>

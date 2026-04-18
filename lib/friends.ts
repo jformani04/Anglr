@@ -1,5 +1,11 @@
 import { supabase } from "@/lib/supabase";
 import { MapCatchPin } from "@/lib/catches";
+import {
+  hasResolvedCoordinates,
+  queryRowsWithCoordinateFallback,
+} from "@/lib/mapCoordinates";
+
+const DEBUG = process.env.EXPO_PUBLIC_DEBUG === "1";
 
 export type FriendshipStatus = "pending" | "accepted" | "blocked";
 
@@ -60,6 +66,25 @@ function mapProfileRow(row: ProfileRow): FriendProfile {
     avatarUrl: row.avatar_url ?? null,
     bio: row.bio ?? null,
   };
+}
+
+function dlog(message: string, payload?: unknown) {
+  if (!DEBUG) return;
+  if (payload === undefined) {
+    console.log(`[friends] ${message}`);
+    return;
+  }
+  console.log(`[friends] ${message}`, payload);
+}
+
+function normalizeProfileRelation(
+  relation: ProfileRow | ProfileRow[] | null | undefined
+): ProfileRow | null {
+  if (!relation) return null;
+  if (Array.isArray(relation)) {
+    return relation[0] ?? null;
+  }
+  return relation;
 }
 
 export async function sendFriendRequest(receiverId: string): Promise<void> {
@@ -123,9 +148,10 @@ export async function getFriends(userId: string): Promise<FriendProfile[]> {
 
   if (error) throw error;
 
-  return ((data ?? []) as FriendshipWithBoth[]).map((row) => {
-    const profileRow =
-      row.requester_id === userId ? row.receiver : row.requester;
+  return ((data ?? []) as unknown as FriendshipWithBoth[]).map((row) => {
+    const profileRow = normalizeProfileRelation(
+      row.requester_id === userId ? row.receiver : row.requester
+    );
     return mapProfileRow(
       profileRow ?? { id: "", username: null, avatar_url: null, bio: null }
     );
@@ -146,14 +172,14 @@ export async function getPendingRequests(
 
   if (error) throw error;
 
-  return ((data ?? []) as FriendshipWithRequester[]).map((row) => ({
+  return ((data ?? []) as unknown as FriendshipWithRequester[]).map((row) => ({
     id: row.id,
     requesterId: row.requester_id,
     receiverId: row.receiver_id,
     status: row.status,
     createdAt: row.created_at,
     profile: mapProfileRow(
-      row.requester ?? {
+      normalizeProfileRelation(row.requester) ?? {
         id: row.requester_id,
         username: null,
         avatar_url: null,
@@ -177,14 +203,14 @@ export async function getSentRequests(
 
   if (error) throw error;
 
-  return ((data ?? []) as FriendshipWithReceiver[]).map((row) => ({
+  return ((data ?? []) as unknown as FriendshipWithReceiver[]).map((row) => ({
     id: row.id,
     requesterId: row.requester_id,
     receiverId: row.receiver_id,
     status: row.status,
     createdAt: row.created_at,
     profile: mapProfileRow(
-      row.receiver ?? {
+      normalizeProfileRelation(row.receiver) ?? {
         id: row.receiver_id,
         username: null,
         avatar_url: null,
@@ -257,35 +283,31 @@ export async function searchUsers(query: string): Promise<FriendProfile[]> {
 export async function getFriendCatchPins(
   friendIds: string[]
 ): Promise<MapCatchPin[]> {
+  friendIds = friendIds.filter((id): id is string => typeof id === "string" && id.length > 0);
   if (friendIds.length === 0) return [];
 
-  const { data, error } = await supabase
-    .from("catch_logs")
-    .select("id, species, latitude, longitude, image_url, date, hide_location")
-    .in("user_id", friendIds)
-    .eq("is_public", true)
-    .not("latitude", "is", null)
-    .not("longitude", "is", null);
+  const rows = await queryRowsWithCoordinateFallback(() =>
+    supabase
+      .from("catch_logs")
+      .select("*")
+      .in("user_id", friendIds)
+      .eq("is_public", true)
+  );
 
-  if (error) throw error;
+  return rows.flatMap((row) => {
+    if (row.hide_location || !hasResolvedCoordinates(row)) {
+      return [];
+    }
 
-  return ((data ?? []) as any[])
-    .filter(
-      (row) =>
-        !row.hide_location &&
-        typeof row.latitude === "number" &&
-        typeof row.longitude === "number" &&
-        isFinite(row.latitude) &&
-        isFinite(row.longitude)
-    )
-    .map((row) => ({
+    return [{
       id: row.id as string,
       species: (row.species as string | null) ?? "Unknown",
-      latitude: row.latitude as number,
-      longitude: row.longitude as number,
+      latitude: row.latitude,
+      longitude: row.longitude,
       imageUrl: (row.image_url as string | null) ?? "",
       date: (row.date as string | null) ?? "",
-    }));
+    }];
+  });
 }
 
 // ---- Rich map pin (includes weight/length/username for callout card) ----
@@ -307,50 +329,106 @@ export type FriendMapPin = {
 export async function getFriendMapPins(
   friendIds: string[]
 ): Promise<FriendMapPin[]> {
+  friendIds = friendIds.filter((id): id is string => typeof id === "string" && id.length > 0);
   if (friendIds.length === 0) return [];
+  dlog("fetch friend pins ids", friendIds);
 
-  const { data: pinsData, error: pinsError } = await supabase
-    .from("catch_logs")
-    .select(
-      "id, species, latitude, longitude, image_url, date, weight, length, user_id, hide_location"
-    )
-    .in("user_id", friendIds)
-    .eq("is_public", true)
-    .not("latitude", "is", null)
-    .not("longitude", "is", null);
+  const validRows = (await queryRowsWithCoordinateFallback(() =>
+    supabase
+      .from("catch_logs")
+      .select("*")
+      .in("user_id", friendIds)
+      .eq("is_public", true)
+  )).flatMap((row) => {
+    if (row.hide_location || !hasResolvedCoordinates(row)) {
+      return [];
+    }
 
-  if (pinsError) throw pinsError;
-
-  const validRows = ((pinsData ?? []) as any[]).filter(
-    (row) =>
-      !row.hide_location &&
-      typeof row.latitude === "number" &&
-      typeof row.longitude === "number" &&
-      isFinite(row.latitude) &&
-      isFinite(row.longitude)
-  );
+    return [row];
+  });
 
   if (validRows.length === 0) return [];
 
   const uniqueUserIds = [...new Set(validRows.map((r) => r.user_id as string))];
+  let profileMap = new Map<string, any>();
+
   const { data: profilesData, error: profilesError } = await supabase
     .from("profiles")
     .select("id, username, avatar_url")
     .in("id", uniqueUserIds);
 
-  if (profilesError) throw profilesError;
+  if (profilesError) {
+    dlog("friend profile lookup failed", profilesError);
+  } else {
+    profileMap = new Map(
+      ((profilesData ?? []) as any[]).map((p) => [p.id as string, p])
+    );
+  }
 
-  const profileMap = new Map(
-    ((profilesData ?? []) as any[]).map((p) => [p.id as string, p])
-  );
+  dlog("friend pins count", validRows.length);
 
   return validRows.map((row) => {
     const profile = profileMap.get(row.user_id as string);
     return {
       id: row.id as string,
       species: (row.species as string | null) ?? "Unknown",
-      latitude: row.latitude as number,
-      longitude: row.longitude as number,
+      latitude: row.latitude,
+      longitude: row.longitude,
+      imageUrl: (row.image_url as string | null) ?? "",
+      date: (row.date as string | null) ?? "",
+      weight: (row.weight as string | null) ?? "",
+      length: (row.length as string | null) ?? "",
+      userId: row.user_id as string,
+      username: (profile?.username as string | null) ?? "Angler",
+      avatarUrl: (profile?.avatar_url as string | null) ?? null,
+    };
+  });
+}
+
+export async function getGlobalMapPins(limit = 250): Promise<FriendMapPin[]> {
+  dlog("fetch global pins limit", limit);
+  const validRows = (await queryRowsWithCoordinateFallback(() =>
+    supabase
+      .from("catch_logs")
+      .select("*")
+      .eq("is_public", true)
+      .order("created_at", { ascending: false })
+      .limit(limit)
+  )).flatMap((row) => {
+    if (row.hide_location || !hasResolvedCoordinates(row)) {
+      return [];
+    }
+
+    return [row];
+  });
+
+  if (validRows.length === 0) return [];
+
+  const uniqueUserIds = [...new Set(validRows.map((row) => row.user_id as string))];
+  let profileMap = new Map<string, any>();
+
+  const { data: profilesData, error: profilesError } = await supabase
+    .from("profiles")
+    .select("id, username, avatar_url")
+    .in("id", uniqueUserIds);
+
+  if (profilesError) {
+    dlog("global profile lookup failed", profilesError);
+  } else {
+    profileMap = new Map(
+      ((profilesData ?? []) as any[]).map((profile) => [profile.id as string, profile])
+    );
+  }
+
+  dlog("global pins count", validRows.length);
+
+  return validRows.map((row) => {
+    const profile = profileMap.get(row.user_id as string);
+    return {
+      id: row.id as string,
+      species: (row.species as string | null) ?? "Unknown",
+      latitude: row.latitude,
+      longitude: row.longitude,
       imageUrl: (row.image_url as string | null) ?? "",
       date: (row.date as string | null) ?? "",
       weight: (row.weight as string | null) ?? "",

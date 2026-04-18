@@ -16,8 +16,8 @@ export default function ImageReviewScreen() {
 
   const handleDone = () => {
     router.replace({
-      pathname: "/catches/new",
-      params: { imageUri },
+      pathname: "/catches/[catchId]",
+      params: { catchId: "new", imageUri },
     });
   };
 

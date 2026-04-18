@@ -13,7 +13,7 @@ function cleanEnv(value: string | undefined) {
   return trimmed;
 }
 
-const supabaseUrl = cleanEnv(process.env.EXPO_PUBLIC_SUPABASE_URL);
+export const supabaseUrl = cleanEnv(process.env.EXPO_PUBLIC_SUPABASE_URL);
 const supabaseAnonKey = cleanEnv(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY);
 
 if (!supabaseUrl || !supabaseAnonKey) {

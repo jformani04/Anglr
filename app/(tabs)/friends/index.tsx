@@ -23,7 +23,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -149,6 +148,7 @@ export default function FriendsScreen() {
   const friendIdSet = new Set(friends.map((f) => f.id));
   const pendingIdSet = new Set(pendingRequests.map((r) => r.requesterId));
   const sentIdSet = new Set(sentRequests.map((r) => r.receiverId));
+  const totalConnections = friends.length + pendingRequests.length + sentRequests.length;
 
   return (
     <ScrollView
@@ -183,6 +183,23 @@ export default function FriendsScreen() {
         </View>
       </View>
 
+      <View style={styles.summaryCard}>
+        <View style={styles.summaryStat}>
+          <Text style={styles.summaryValue}>{friends.length}</Text>
+          <Text style={styles.summaryLabel}>Friends</Text>
+        </View>
+        <View style={styles.summaryDivider} />
+        <View style={styles.summaryStat}>
+          <Text style={styles.summaryValue}>{pendingRequests.length}</Text>
+          <Text style={styles.summaryLabel}>Requests</Text>
+        </View>
+        <View style={styles.summaryDivider} />
+        <View style={styles.summaryStat}>
+          <Text style={styles.summaryValue}>{totalConnections}</Text>
+          <Text style={styles.summaryLabel}>Total Activity</Text>
+        </View>
+      </View>
+
       {/* Search */}
       <View style={styles.searchWrap}>
         <Search
@@ -211,15 +228,19 @@ export default function FriendsScreen() {
       {/* Search Results */}
       {isSearchMode && (
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Search Results</Text>
+          <SectionHeader
+            title="Search Results"
+            subtitle="Tap a profile to view or send a friend request."
+          />
           {searching ? (
             <View style={styles.centerCard}>
               <ActivityIndicator size="small" color={COLORS.primary} />
             </View>
           ) : searchResults.length === 0 ? (
-            <View style={styles.centerCard}>
-              <Text style={styles.emptyText}>No users found</Text>
-            </View>
+            <EmptyState
+              title="No users found"
+              text="Try a different username or check the spelling."
+            />
           ) : (
             <View style={styles.list}>
               {searchResults.map((user) => {
@@ -236,6 +257,7 @@ export default function FriendsScreen() {
                     <Avatar uri={user.avatarUrl} username={user.username} size={44} />
                     <View style={styles.cardContent}>
                       <Text style={styles.username}>{user.username}</Text>
+                      <Text style={styles.metaText}>Tap to view profile</Text>
                       {!!user.bio && (
                         <Text style={styles.bio} numberOfLines={1}>
                           {user.bio}
@@ -270,9 +292,10 @@ export default function FriendsScreen() {
       {/* Pending Requests */}
       {!isSearchMode && pendingRequests.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>
-            Friend Requests ({pendingRequests.length})
-          </Text>
+          <SectionHeader
+            title={`Friend Requests (${pendingRequests.length})`}
+            subtitle="Accept or decline incoming requests."
+          />
           <View style={styles.list}>
             {pendingRequests.map((req) => (
               <View key={req.id} style={styles.card}>
@@ -283,6 +306,7 @@ export default function FriendsScreen() {
                   <Avatar uri={req.profile.avatarUrl} username={req.profile.username} size={44} />
                   <View style={styles.cardContent}>
                     <Text style={styles.username}>{req.profile.username}</Text>
+                    <Text style={styles.metaText}>Wants to connect</Text>
                     {!!req.profile.bio && (
                       <Text style={styles.bio} numberOfLines={1}>
                         {req.profile.bio}
@@ -327,7 +351,10 @@ export default function FriendsScreen() {
       {/* Sent Requests */}
       {!isSearchMode && sentRequests.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Sent ({sentRequests.length})</Text>
+          <SectionHeader
+            title={`Sent (${sentRequests.length})`}
+            subtitle="Pending requests you can still cancel."
+          />
           <View style={styles.list}>
             {sentRequests.map((req) => (
               <Pressable
@@ -338,6 +365,7 @@ export default function FriendsScreen() {
                 <Avatar uri={req.profile.avatarUrl} username={req.profile.username} size={44} />
                 <View style={styles.cardContent}>
                   <Text style={styles.username}>{req.profile.username}</Text>
+                  <Text style={styles.metaText}>Request sent</Text>
                   {!!req.profile.bio && (
                     <Text style={styles.bio} numberOfLines={1}>
                       {req.profile.bio}
@@ -364,21 +392,20 @@ export default function FriendsScreen() {
       {/* Friends List */}
       {!isSearchMode && (
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>
-            Friends ({friends.length})
-          </Text>
+          <SectionHeader
+            title={`Friends (${friends.length})`}
+            subtitle="Your accepted fishing buddies."
+          />
           {friendsLoading ? (
             <View style={styles.centerCard}>
               <ActivityIndicator size="large" color={COLORS.primary} />
               <Text style={styles.emptyText}>Loading...</Text>
             </View>
           ) : friends.length === 0 ? (
-            <View style={styles.centerCard}>
-              <Text style={styles.emptyTitle}>No friends yet</Text>
-              <Text style={styles.emptyText}>
-                Search for anglers above to add your first friend.
-              </Text>
-            </View>
+            <EmptyState
+              title="No friends yet"
+              text="Search for anglers above to add your first friend."
+            />
           ) : (
             <View style={styles.list}>
               {friends.map((friend) => (
@@ -390,6 +417,7 @@ export default function FriendsScreen() {
                   <Avatar uri={friend.avatarUrl} username={friend.username} size={44} />
                   <View style={styles.cardContent}>
                     <Text style={styles.username}>{friend.username}</Text>
+                    <Text style={styles.metaText}>View profile and public catches</Text>
                     {!!friend.bio && (
                       <Text style={styles.bio} numberOfLines={1}>
                         {friend.bio}
@@ -413,6 +441,24 @@ export default function FriendsScreen() {
   );
 }
 
+function SectionHeader({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionLabel}>{title}</Text>
+      <Text style={styles.sectionSubtext}>{subtitle}</Text>
+    </View>
+  );
+}
+
+function EmptyState({ title, text }: { title: string; text: string }) {
+  return (
+    <View style={styles.centerCard}>
+      <Text style={styles.emptyTitle}>{title}</Text>
+      <Text style={styles.emptyText}>{text}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -427,6 +473,37 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
+  },
+  summaryCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    backgroundColor: "rgba(0,0,0,0.12)",
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+  },
+  summaryStat: {
+    flex: 1,
+    alignItems: "center",
+    gap: 4,
+  },
+  summaryValue: {
+    color: COLORS.text,
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  summaryLabel: {
+    color: COLORS.textSecondary,
+    fontSize: 11,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  summaryDivider: {
+    width: 1,
+    alignSelf: "stretch",
+    backgroundColor: "rgba(255,255,255,0.08)",
   },
   backButton: {
     width: 42,
@@ -473,7 +550,10 @@ const styles = StyleSheet.create({
     padding: 0,
   },
   section: {
-    gap: 8,
+    gap: 10,
+  },
+  sectionHeader: {
+    gap: 4,
   },
   sectionLabel: {
     color: COLORS.textSecondary,
@@ -482,18 +562,23 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     fontWeight: "600",
   },
+  sectionSubtext: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+  },
   list: {
-    gap: 8,
+    gap: 10,
   },
   card: {
-    backgroundColor: "rgba(221,220,219,0.08)",
+    backgroundColor: "rgba(17,19,21,0.92)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
-    borderRadius: 18,
+    borderColor: "rgba(255,255,255,0.1)",
+    borderRadius: 20,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     gap: 12,
   },
   cardPressable: {
@@ -521,6 +606,11 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 15,
     fontWeight: "700",
+  },
+  metaText: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    marginTop: 2,
   },
   bio: {
     color: COLORS.textSecondary,
@@ -593,12 +683,12 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.15)",
   },
   cancelBtn: {
-    backgroundColor: "rgba(221,220,219,0.1)",
+    backgroundColor: "rgba(255,255,255,0.04)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
+    borderColor: "rgba(255,255,255,0.12)",
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     flexShrink: 0,
   },
   cancelBtnText: {
@@ -611,11 +701,11 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   centerCard: {
-    backgroundColor: "rgba(221,220,219,0.08)",
-    borderRadius: 18,
+    backgroundColor: "rgba(17,19,21,0.92)",
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
-    padding: 20,
+    borderColor: "rgba(255,255,255,0.1)",
+    padding: 22,
     alignItems: "center",
     gap: 8,
   },

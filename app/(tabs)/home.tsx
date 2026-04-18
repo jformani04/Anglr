@@ -345,7 +345,7 @@ export default function Home() {
           <Fish size={32} color={COLORS.textSecondary} strokeWidth={1.5} />
           <Text style={styles.feedEmptyTitle}>Nothing yet</Text>
           <Text style={styles.feedEmptyText}>
-            Your friends haven't logged any public catches yet.
+            Your friends haven&apos;t logged any public catches yet.
           </Text>
         </View>
       ) : (

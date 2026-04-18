@@ -1,5 +1,7 @@
-import { AuthProvider } from "@/auth/AuthProvider";
+import { AuthProvider, useAuth } from "@/auth/AuthProvider";
 import { FriendsProvider } from "@/auth/FriendsProvider";
+import { startNetworkMonitor, subscribeToNetworkStatus } from "@/lib/network";
+import { syncPendingCatchLogs } from "@/lib/catches";
 import { supabase } from "@/lib/supabase";
 import { router, Stack, useSegments } from "expo-router";
 import { useEffect, useRef } from "react";
@@ -75,6 +77,7 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <FriendsProvider>
+        <CatchSyncBootstrap />
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="index" />
           <Stack.Screen name="(auth)" />
@@ -85,4 +88,36 @@ export default function RootLayout() {
       </FriendsProvider>
     </AuthProvider>
   );
+}
+
+function CatchSyncBootstrap() {
+  const { user } = useAuth();
+
+  useEffect(() => {
+    const stopMonitor = startNetworkMonitor();
+    return stopMonitor;
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    void syncPendingCatchLogs();
+
+    const unsubscribe = subscribeToNetworkStatus((isOnline) => {
+      if (isOnline) {
+        void syncPendingCatchLogs();
+      }
+    });
+
+    const interval = setInterval(() => {
+      void syncPendingCatchLogs();
+    }, 30000);
+
+    return () => {
+      unsubscribe();
+      clearInterval(interval);
+    };
+  }, [user]);
+
+  return null;
 }

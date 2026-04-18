@@ -1,5 +1,6 @@
 import * as Location from "expo-location";
 import { COLORS } from "@/lib/colors";
+import MapZoomControls from "@/components/MapZoomControls";
 import { Crosshair, Navigation, X } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -60,6 +61,11 @@ export default function LocationPickerModal({
   const [center, setCenter] = useState<{ latitude: number; longitude: number }>(
     initialCoords ?? { latitude: DEFAULT_REGION.latitude, longitude: DEFAULT_REGION.longitude }
   );
+  const [currentRegion, setCurrentRegion] = useState<Region>(
+    initialCoords
+      ? { ...initialCoords, latitudeDelta: 0.08, longitudeDelta: 0.08 }
+      : DEFAULT_REGION
+  );
   const [geocoding, setGeocoding] = useState(false);
 
   // Center map on open
@@ -68,6 +74,11 @@ export default function LocationPickerModal({
     const init = initialCoords ?? null;
     const coords = init ?? { latitude: DEFAULT_REGION.latitude, longitude: DEFAULT_REGION.longitude };
     setCenter(coords);
+    setCurrentRegion(
+      init
+        ? { ...init, latitudeDelta: 0.08, longitudeDelta: 0.08 }
+        : DEFAULT_REGION
+    );
     setTimeout(() => {
       mapRef.current?.animateToRegion(
         init
@@ -110,6 +121,17 @@ export default function LocationPickerModal({
     });
   };
 
+  const handleZoom = (direction: "in" | "out") => {
+    const factor = direction === "in" ? 0.5 : 2;
+    const nextRegion = {
+      ...currentRegion,
+      latitudeDelta: Math.min(Math.max(currentRegion.latitudeDelta * factor, 0.0025), 90),
+      longitudeDelta: Math.min(Math.max(currentRegion.longitudeDelta * factor, 0.0025), 90),
+    };
+    setCurrentRegion(nextRegion);
+    mapRef.current?.animateToRegion(nextRegion, 220);
+  };
+
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
       <View style={styles.container}>
@@ -121,9 +143,10 @@ export default function LocationPickerModal({
           showsUserLocation
           showsMyLocationButton={false}
           showsCompass={false}
-          onRegionChangeComplete={(region) =>
-            setCenter({ latitude: region.latitude, longitude: region.longitude })
-          }
+          onRegionChangeComplete={(region) => {
+            setCenter({ latitude: region.latitude, longitude: region.longitude });
+            setCurrentRegion(region);
+          }}
         />
 
         {/* Fixed crosshair at map center */}
@@ -163,6 +186,12 @@ export default function LocationPickerModal({
         >
           <Text style={styles.hintText}>Pan the map to position the crosshair</Text>
         </View>
+
+        <MapZoomControls
+          onZoomIn={() => handleZoom("in")}
+          onZoomOut={() => handleZoom("out")}
+          style={{ top: insets.top + (Platform.OS === "android" ? 132 : 128) }}
+        />
 
         {/* Bottom confirmation card */}
         <View

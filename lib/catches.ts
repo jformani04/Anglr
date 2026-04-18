@@ -1,4 +1,13 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "@/lib/supabase";
+import { getUserFacingErrorMessage, withTimeout } from "@/lib/errorHandling";
+import {
+  hasResolvedCoordinates,
+  normalizeCoordinateRow,
+  queryRowsWithCoordinateFallback,
+} from "@/lib/mapCoordinates";
+import { isLikelyNetworkError, refreshNetworkStatus } from "@/lib/network";
+import { fileUriToUploadBody, isLocalFileUri } from "@/lib/upload";
 
 const DEBUG = process.env.EXPO_PUBLIC_DEBUG === "1";
 
@@ -20,6 +29,7 @@ export interface CatchLog {
   date: string;
   latitude?: number | null;
   longitude?: number | null;
+  syncStatus?: "pending" | "synced";
 }
 
 export type MapCatchPin = {
@@ -74,6 +84,21 @@ type CatchLogUpdateRow = {
 
 type CatchLogInsertInput = Omit<CatchLog, "id">;
 
+type PendingCatchRecord = {
+  queuedAt: string;
+  lastError: string | null;
+  userId: string;
+  catchLog: CatchLog;
+};
+
+type CreateCatchLogResult = {
+  catchId: string;
+  syncStatus: "pending" | "synced";
+};
+
+const PENDING_CATCHES_STORAGE_KEY = "anglr.pending-catches.v1";
+const REQUEST_TIMEOUT_MS = 12000;
+
 function debugLog(message: string, payload?: unknown) {
   if (!DEBUG) return;
   if (payload === undefined) {
@@ -97,6 +122,7 @@ function stripOptionalColumns<T extends Record<string, any>>(payload: T, columns
 }
 
 export function mapCatchLogRowToCatchLog(row: CatchLogRow): CatchLog {
+  const normalizedRow = normalizeCoordinateRow(row as unknown as Record<string, unknown>);
   return {
     id: row.id,
     imageUrl: row.image_url ?? "",
@@ -113,8 +139,9 @@ export function mapCatchLogRowToCatchLog(row: CatchLogRow): CatchLog {
     isFavorite: row.is_favorite ?? false,
     hideLocation: row.hide_location ?? false,
     date: row.date ?? "",
-    latitude: row.latitude ?? null,
-    longitude: row.longitude ?? null,
+    latitude: normalizedRow.latitude,
+    longitude: normalizedRow.longitude,
+    syncStatus: "synced",
   };
 }
 
@@ -142,20 +169,37 @@ export function mapCatchLogToUpdateRow(catchLog: CatchLog): CatchLogUpdateRow {
 export async function getUserCatchLogs(userId: string): Promise<CatchLog[]> {
   debugLog("fetch user catches user_id", userId);
 
-  const { data, error } = await supabase
-    .from("catch_logs")
-    .select("*")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false });
+  const remotePromise = withTimeout<any>(
+    supabase.from("catch_logs").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+    REQUEST_TIMEOUT_MS,
+    "Loading your catches took too long."
+  );
 
-  if (error) {
-    debugLog("fetch failed", error);
-    throw error;
+  try {
+    const [{ data, error }, pending] = await Promise.all([
+      remotePromise,
+      getPendingCatchRecords(userId),
+    ]);
+
+    if (error) {
+      debugLog("fetch failed", error);
+      throw error;
+    }
+
+    const remoteRows = ((data ?? []) as CatchLogRow[]).map(mapCatchLogRowToCatchLog);
+    const merged = mergeCatchLists(remoteRows, pending.map((record) => record.catchLog));
+    debugLog("fetch count", merged.length);
+    return merged;
+  } catch (error) {
+    const pending = await getPendingCatchRecords(userId);
+    if (pending.length > 0 && isLikelyNetworkError(error)) {
+      return pending
+        .map((record) => record.catchLog)
+        .sort((a, b) => getCatchSortTime(b) - getCatchSortTime(a));
+    }
+
+    throw wrapCatchError(error, "Failed to load catches.");
   }
-
-  const rows = (data ?? []) as CatchLogRow[];
-  debugLog("fetch count", rows.length);
-  return rows.map(mapCatchLogRowToCatchLog);
 }
 
 export async function getUserFavoriteCatchLogs(userId: string): Promise<CatchLog[]> {
@@ -180,16 +224,23 @@ export async function getCatchLogById(
   catchId: string,
   userId: string
 ): Promise<CatchLog | null> {
-  const { data, error } = await supabase
-    .from("catch_logs")
-    .select("*")
-    .eq("id", catchId)
-    .eq("user_id", userId)
-    .single();
+  const pending = await getPendingCatchById(userId, catchId);
+  if (pending) return pending.catchLog;
+
+  const { data, error } = await withTimeout<any>(
+    supabase
+      .from("catch_logs")
+      .select("*")
+      .eq("id", catchId)
+      .eq("user_id", userId)
+      .single(),
+    REQUEST_TIMEOUT_MS,
+    "Loading this catch took too long."
+  );
 
   if (error) {
     if ((error as any).code === "PGRST116") return null;
-    throw error;
+    throw wrapCatchError(error, "Unable to load catch.");
   }
 
   return mapCatchLogRowToCatchLog(data as CatchLogRow);
@@ -206,44 +257,45 @@ export async function updateCatchLog(catchLog: CatchLog): Promise<void> {
 
   debugLog("update catch user_id", user.id);
 
+  const pending = await getPendingCatchById(user.id, catchLog.id);
+  if (pending) {
+    await upsertPendingCatchRecord(user.id, {
+      queuedAt: pending.queuedAt,
+      lastError: pending.lastError,
+      catchLog: {
+        ...catchLog,
+        imageUrl: catchLog.imageUrl || pending.catchLog.imageUrl,
+        syncStatus: "pending",
+      },
+    });
+    return;
+  }
+
   const payload = mapCatchLogToUpdateRow(catchLog);
 
-  let { error } = await supabase
-    .from("catch_logs")
-    .update(payload)
-    .eq("id", catchLog.id)
-    .eq("user_id", user.id);
-
-  if (
-    error &&
-    (isMissingColumnError(error, "hide_location") ||
-      isMissingColumnError(error, "is_favorite") ||
-      isMissingColumnError(error, "latitude") ||
-      isMissingColumnError(error, "longitude"))
-  ) {
-    const legacyPayload = stripOptionalColumns(payload, [
-      "hide_location",
-      "is_favorite",
-      "latitude",
-      "longitude",
-    ]);
-    const retry = await supabase
-      .from("catch_logs")
-      .update(legacyPayload)
-      .eq("id", catchLog.id)
-      .eq("user_id", user.id);
-    error = retry.error;
-  }
+  let error = await runCatchMutationWithCoordinateFallback(
+    (variant) =>
+      withTimeout<any>(
+        supabase
+          .from("catch_logs")
+          .update(variant)
+          .eq("id", catchLog.id)
+          .eq("user_id", user.id),
+        REQUEST_TIMEOUT_MS,
+        "Saving your changes took too long."
+      ),
+    payload
+  );
 
   if (error) {
     debugLog("update failed", error);
-    throw error;
+    throw wrapCatchError(error, "Unable to update catch.");
   }
 
   debugLog("update success catch_id", catchLog.id);
 }
 
-export async function createCatchLog(input: CatchLogInsertInput): Promise<void> {
+export async function createCatchLog(input: CatchLogInsertInput): Promise<CreateCatchLogResult> {
   const {
     data: { user },
     error: userError,
@@ -254,80 +306,84 @@ export async function createCatchLog(input: CatchLogInsertInput): Promise<void> 
 
   debugLog("create catch user_id", user.id);
 
-  const payload = {
-    user_id: user.id,
-    image_url: input.imageUrl,
-    species: input.species,
-    length: input.length,
-    weight: input.weight,
-    location: input.location,
-    temperature: input.temperature,
-    weather: input.weather,
-    lure: input.lure,
-    method: input.method,
-    notes: input.notes,
-    is_public: input.isPublic,
-    is_favorite: input.isFavorite,
-    hide_location: input.hideLocation,
-    date: input.date,
-    latitude: input.latitude ?? null,
-    longitude: input.longitude ?? null,
+  const catchId = crypto.randomUUID();
+  const catchLog: CatchLog = {
+    ...input,
+    id: catchId,
+    syncStatus: "pending",
   };
 
-  let { error } = await supabase.from("catch_logs").insert(payload);
-  if (
-    error &&
-    (isMissingColumnError(error, "hide_location") ||
-      isMissingColumnError(error, "is_favorite") ||
-      isMissingColumnError(error, "latitude") ||
-      isMissingColumnError(error, "longitude"))
-  ) {
-    const legacyPayload = stripOptionalColumns(payload, [
-      "hide_location",
-      "is_favorite",
-      "latitude",
-      "longitude",
-    ]);
-    const retry = await supabase.from("catch_logs").insert(legacyPayload);
-    error = retry.error;
-  }
-  if (error) {
-    debugLog("create failed", error);
-    throw error;
+  const isOnline = await refreshNetworkStatus();
+  if (!isOnline) {
+    await queuePendingCatch(user.id, catchLog);
+    return { catchId, syncStatus: "pending" };
   }
 
-  debugLog("create success");
+  const payload = {
+    id: catchId,
+    user_id: user.id,
+    image_url: catchLog.imageUrl,
+    species: catchLog.species,
+    length: catchLog.length,
+    weight: catchLog.weight,
+    location: catchLog.location,
+    temperature: catchLog.temperature,
+    weather: catchLog.weather,
+    lure: catchLog.lure,
+    method: catchLog.method,
+    notes: catchLog.notes,
+    is_public: catchLog.isPublic,
+    is_favorite: catchLog.isFavorite,
+    hide_location: catchLog.hideLocation,
+    date: catchLog.date,
+    latitude: catchLog.latitude ?? null,
+    longitude: catchLog.longitude ?? null,
+  };
+
+  try {
+    await insertCatchRow(payload);
+    debugLog("create success");
+    return { catchId, syncStatus: "synced" };
+  } catch (error) {
+    if (isLikelyNetworkError(error)) {
+      await queuePendingCatch(user.id, catchLog);
+      return { catchId, syncStatus: "pending" };
+    }
+
+    debugLog("create failed", error);
+    throw wrapCatchError(error, "Unable to save catch.");
+  }
 }
 
 export async function getMapCatchPins(userId: string): Promise<MapCatchPin[]> {
   debugLog("fetch map pins user_id", userId);
 
-  const { data, error } = await supabase
-    .from("catch_logs")
-    .select("id, species, latitude, longitude, image_url, date")
-    .eq("user_id", userId)
-    .not("latitude", "is", null)
-    .not("longitude", "is", null);
+  try {
+    const rows = await queryRowsWithCoordinateFallback(() =>
+      withTimeout<any>(
+        supabase
+          .from("catch_logs")
+          .select("*")
+          .eq("user_id", userId),
+        REQUEST_TIMEOUT_MS,
+        "Loading the map took too long."
+      )
+    );
 
-  if (error) {
+    return rows
+      .filter(hasResolvedCoordinates)
+      .map((row) => ({
+        id: row.id as string,
+        species: (row.species as string | null) ?? "Unknown",
+        latitude: row.latitude,
+        longitude: row.longitude,
+        imageUrl: (row.image_url as string | null) ?? "",
+        date: (row.date as string | null) ?? "",
+      }));
+  } catch (error) {
     debugLog("fetch map pins failed", error);
-    throw error;
+    throw wrapCatchError(error, "Unable to load map pins.");
   }
-
-  return ((data ?? []) as any[]).filter(
-    (row) =>
-      typeof row.latitude === "number" &&
-      typeof row.longitude === "number" &&
-      isFinite(row.latitude) &&
-      isFinite(row.longitude)
-  ).map((row) => ({
-    id: row.id as string,
-    species: (row.species as string | null) ?? "Unknown",
-    latitude: row.latitude as number,
-    longitude: row.longitude as number,
-    imageUrl: (row.image_url as string | null) ?? "",
-    date: (row.date as string | null) ?? "",
-  }));
 }
 
 export async function uploadCatchPhoto(fileUri: string): Promise<string> {
@@ -340,19 +396,20 @@ export async function uploadCatchPhoto(fileUri: string): Promise<string> {
   if (!user) throw new Error("No authenticated user");
 
   const filePath = `${user.id}/${Date.now()}.jpg`;
-  const response = await fetch(fileUri);
-  const blob = await response.blob();
+  const uploadBody = await fileUriToUploadBody(fileUri);
 
-  const { error: uploadError } = await supabase.storage
-    .from("catch_photos")
-    .upload(filePath, blob, {
+  const { error: uploadError } = await withTimeout(
+    supabase.storage.from("catch_photos").upload(filePath, uploadBody, {
       contentType: "image/jpeg",
       upsert: false,
-    });
+    }),
+    REQUEST_TIMEOUT_MS,
+    "Uploading your catch photo took too long."
+  );
 
   if (uploadError) {
     debugLog("catch photo upload failed", uploadError);
-    throw uploadError;
+    throw wrapCatchError(uploadError, "Unable to upload your catch photo.");
   }
 
   const { data } = supabase.storage.from("catch_photos").getPublicUrl(filePath);
@@ -371,15 +428,25 @@ export async function deleteCatchLog(catchId: string): Promise<void> {
 
   debugLog("delete catch user_id", user.id);
 
-  const { error } = await supabase
-    .from("catch_logs")
-    .delete()
-    .eq("id", catchId)
-    .eq("user_id", user.id);
+  const pending = await getPendingCatchById(user.id, catchId);
+  if (pending) {
+    await removePendingCatchRecord(user.id, catchId);
+    return;
+  }
+
+  const { error } = await withTimeout<any>(
+    supabase
+      .from("catch_logs")
+      .delete()
+      .eq("id", catchId)
+      .eq("user_id", user.id),
+    REQUEST_TIMEOUT_MS,
+    "Deleting this catch took too long."
+  );
 
   if (error) {
     debugLog("delete failed", error);
-    throw error;
+    throw wrapCatchError(error, "Unable to delete catch.");
   }
 
   debugLog("delete success catch_id", catchId);
@@ -415,4 +482,239 @@ export async function seedDevCatchLog(userId: string): Promise<void> {
     error = retry.error;
   }
   if (error) throw error;
+}
+
+export async function syncPendingCatchLogs(): Promise<number> {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) throw userError;
+  if (!user) return 0;
+
+  const isOnline = await refreshNetworkStatus();
+  if (!isOnline) return 0;
+
+  const pending = await getPendingCatchRecords(user.id);
+  if (pending.length === 0) return 0;
+
+  let syncedCount = 0;
+
+  for (const record of pending) {
+    try {
+      const catchLog = await preparePendingCatchForSync(record.catchLog);
+      await insertCatchRow({
+        id: catchLog.id,
+        user_id: user.id,
+        image_url: catchLog.imageUrl,
+        species: catchLog.species,
+        length: catchLog.length,
+        weight: catchLog.weight,
+        location: catchLog.location,
+        temperature: catchLog.temperature,
+        weather: catchLog.weather,
+        lure: catchLog.lure,
+        method: catchLog.method,
+        notes: catchLog.notes,
+        is_public: catchLog.isPublic,
+        is_favorite: catchLog.isFavorite,
+        hide_location: catchLog.hideLocation,
+        date: catchLog.date,
+        latitude: catchLog.latitude ?? null,
+        longitude: catchLog.longitude ?? null,
+      });
+
+      await removePendingCatchRecord(user.id, record.catchLog.id);
+      syncedCount += 1;
+    } catch (error) {
+      if (isDuplicatePrimaryKeyError(error)) {
+        await removePendingCatchRecord(user.id, record.catchLog.id);
+        syncedCount += 1;
+        continue;
+      }
+
+      if (isLikelyNetworkError(error)) {
+        await upsertPendingCatchRecord(user.id, {
+          ...record,
+          lastError: getUserFacingErrorMessage(error, "Network issue while syncing."),
+        });
+        break;
+      }
+
+      await upsertPendingCatchRecord(user.id, {
+        ...record,
+        lastError: getUserFacingErrorMessage(error, "Unable to sync this catch."),
+      });
+    }
+  }
+
+  return syncedCount;
+}
+
+async function preparePendingCatchForSync(catchLog: CatchLog): Promise<CatchLog> {
+  if (!isLocalFileUri(catchLog.imageUrl)) {
+    return {
+      ...catchLog,
+      syncStatus: "synced",
+    };
+  }
+
+  const imageUrl = await uploadCatchPhoto(catchLog.imageUrl);
+  return {
+    ...catchLog,
+    imageUrl,
+    syncStatus: "synced",
+  };
+}
+
+async function insertCatchRow(payload: Record<string, unknown>) {
+  const error = await runCatchMutationWithCoordinateFallback(
+    (variant) =>
+      withTimeout<any>(
+        supabase.from("catch_logs").insert(variant),
+        REQUEST_TIMEOUT_MS,
+        "Saving your catch took too long."
+      ),
+    payload
+  );
+
+  if (error) throw error;
+}
+
+async function runCatchMutationWithCoordinateFallback(
+  execute: (payload: Record<string, unknown>) => Promise<{ error: any }>,
+  payload: Record<string, unknown>
+) {
+  let lastError: any = null;
+  const legacyPayload = stripOptionalColumns(payload, [
+    "hide_location",
+    "is_favorite",
+    "latitude",
+    "longitude",
+  ]);
+
+  console.log("QUERY USING PAIR:", {
+    latitude: "not persisted remotely",
+    longitude: "not persisted remotely",
+  });
+
+  const legacyAttempt = await execute(legacyPayload);
+  if (!legacyAttempt.error) {
+    return null;
+  }
+
+  lastError = legacyAttempt.error;
+
+  if (
+    lastError &&
+    (isMissingColumnError(lastError, "hide_location") ||
+      isMissingColumnError(lastError, "is_favorite"))
+  ) {
+    const retry = await execute(stripOptionalColumns(payload, ["hide_location", "is_favorite"]));
+    return retry.error;
+  }
+
+  return lastError;
+}
+
+function isDuplicatePrimaryKeyError(error: unknown) {
+  const code = String((error as { code?: string } | null | undefined)?.code ?? "");
+  const message = String(
+    (error as { message?: string } | null | undefined)?.message ?? ""
+  ).toLowerCase();
+
+  return code === "23505" || message.includes("duplicate key");
+}
+
+function wrapCatchError(error: unknown, fallback: string) {
+  const message = getUserFacingErrorMessage(error, fallback);
+  return new Error(message);
+}
+
+function getCatchSortTime(catchLog: CatchLog) {
+  const timestamp = Date.parse(catchLog.date);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function mergeCatchLists(remote: CatchLog[], pending: CatchLog[]) {
+  const merged = new Map<string, CatchLog>();
+
+  remote.forEach((catchLog) => merged.set(catchLog.id, { ...catchLog, syncStatus: "synced" }));
+  pending.forEach((catchLog) => merged.set(catchLog.id, { ...catchLog, syncStatus: "pending" }));
+
+  return [...merged.values()].sort((a, b) => getCatchSortTime(b) - getCatchSortTime(a));
+}
+
+async function getPendingCatchRecords(userId: string): Promise<PendingCatchRecord[]> {
+  const raw = await AsyncStorage.getItem(PENDING_CATCHES_STORAGE_KEY);
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as PendingCatchRecord[];
+    return parsed.filter((record) => record.userId === userId);
+  } catch {
+    return [];
+  }
+}
+
+async function getAllPendingCatchRecords(): Promise<PendingCatchRecord[]> {
+  const raw = await AsyncStorage.getItem(PENDING_CATCHES_STORAGE_KEY);
+  if (!raw) return [];
+
+  try {
+    return JSON.parse(raw) as PendingCatchRecord[];
+  } catch {
+    return [];
+  }
+}
+
+async function getPendingCatchById(userId: string, catchId: string) {
+  const pending = await getPendingCatchRecords(userId);
+  return pending.find((record) => record.catchLog.id === catchId) ?? null;
+}
+
+async function queuePendingCatch(userId: string, catchLog: CatchLog) {
+  await upsertPendingCatchRecord(userId, {
+    userId,
+    queuedAt: new Date().toISOString(),
+    lastError: null,
+    catchLog: {
+      ...catchLog,
+      syncStatus: "pending",
+    },
+  });
+}
+
+async function upsertPendingCatchRecord(
+  userId: string,
+  nextRecord: Omit<PendingCatchRecord, "userId"> & { userId?: string }
+) {
+  const allRecords = await getAllPendingCatchRecords();
+  const normalizedRecord: PendingCatchRecord = {
+    userId,
+    queuedAt: nextRecord.queuedAt,
+    lastError: nextRecord.lastError ?? null,
+    catchLog: {
+      ...nextRecord.catchLog,
+      syncStatus: "pending",
+    },
+  };
+
+  const remaining = allRecords.filter(
+    (record) =>
+      !(record.userId === userId && record.catchLog.id === normalizedRecord.catchLog.id)
+  );
+
+  remaining.push(normalizedRecord);
+  await AsyncStorage.setItem(PENDING_CATCHES_STORAGE_KEY, JSON.stringify(remaining));
+}
+
+async function removePendingCatchRecord(userId: string, catchId: string) {
+  const allRecords = await getAllPendingCatchRecords();
+  const remaining = allRecords.filter(
+    (record) => !(record.userId === userId && record.catchLog.id === catchId)
+  );
+
+  await AsyncStorage.setItem(PENDING_CATCHES_STORAGE_KEY, JSON.stringify(remaining));
 }

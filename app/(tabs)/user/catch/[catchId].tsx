@@ -1,4 +1,5 @@
 import { COLORS } from "@/lib/colors";
+import SpeciesGuideLink from "@/components/SpeciesGuideLink";
 import { getPublicCatchById, PublicCatchDetail } from "@/lib/friends";
 import { router, useLocalSearchParams } from "expo-router";
 import { ArrowLeft, Calendar, MapPin, Ruler, Thermometer, Weight } from "lucide-react-native";
@@ -108,6 +109,8 @@ export default function FriendCatchDetailScreen() {
           </View>
         )}
       </View>
+
+      <SpeciesGuideLink speciesName={catchLog.species} />
 
       {/* Measurements */}
       <Section title="Measurements">

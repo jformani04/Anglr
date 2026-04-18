@@ -1,4 +1,5 @@
 import { COLORS } from "@/lib/colors";
+import SpeciesGuideLink from "@/components/SpeciesGuideLink";
 import {
   CatchLog,
   createCatchLog,
@@ -446,16 +447,22 @@ export default function EditCatchScreen() {
       );
       const isoDate = toIsoDate(joinDateTime(payload.date, timeValue));
 
-      await createCatchLog({
+      const result = await createCatchLog({
         ...payload,
         date: isoDate,
         latitude: pickerCoords?.latitude ?? null,
         longitude: pickerCoords?.longitude ?? null,
       });
 
-      Alert.alert("Catch Logged!", "Your catch has been saved.", [
+      Alert.alert(
+        result.syncStatus === "pending" ? "Saved Offline" : "Catch Logged!",
+        result.syncStatus === "pending"
+          ? "Your catch was saved on this device and will upload automatically when you're back online."
+          : "Your catch has been saved.",
+        [
         { text: "View Catches", onPress: () => router.replace("/catches") },
-      ]);
+        ]
+      );
     } catch (err: any) {
       setSaveStatus("error");
       setError(err?.message ?? "Unable to save catch.");
@@ -600,6 +607,8 @@ export default function EditCatchScreen() {
           </View>
         )}
 
+        <SpeciesGuideLink speciesName={form.species} />
+
         <View style={styles.card}>
           <View style={styles.cardTopRow}>
             <Text style={styles.cardTitle}>Catch Details</Text>
@@ -608,6 +617,8 @@ export default function EditCatchScreen() {
                 <Text style={styles.statusPillText}>
                   {deleting
                     ? "Deleting..."
+                    : form.syncStatus === "pending"
+                      ? "Pending Sync"
                     : saveStatus === "saving"
                       ? "Saving..."
                       : saveStatus === "saved"

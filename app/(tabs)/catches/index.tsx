@@ -177,7 +177,9 @@ export default function CatchesScreen() {
                     <View
                       style={[
                         styles.visibilityPill,
-                        catchLog.isPublic
+                        catchLog.syncStatus === "pending"
+                          ? styles.visibilityPillPending
+                          : catchLog.isPublic
                           ? styles.visibilityPillPublic
                           : styles.visibilityPillPrivate,
                       ]}
@@ -185,12 +187,18 @@ export default function CatchesScreen() {
                       <Text
                         style={[
                           styles.visibilityPillText,
-                          catchLog.isPublic
+                          catchLog.syncStatus === "pending"
+                            ? styles.visibilityPillTextPending
+                            : catchLog.isPublic
                             ? styles.visibilityPillTextPublic
                             : styles.visibilityPillTextPrivate,
                         ]}
                       >
-                        {catchLog.isPublic ? "Public" : "Private"}
+                        {catchLog.syncStatus === "pending"
+                          ? "Pending"
+                          : catchLog.isPublic
+                            ? "Public"
+                            : "Private"}
                       </Text>
                     </View>
                   </View>
@@ -427,6 +435,10 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(34,197,94,0.2)",
     borderColor: "rgba(74,222,128,0.35)",
   },
+  visibilityPillPending: {
+    backgroundColor: "rgba(251,191,36,0.18)",
+    borderColor: "rgba(251,191,36,0.35)",
+  },
   visibilityPillPrivate: {
     backgroundColor: "rgba(253,123,65,0.2)",
     borderColor: "rgba(253,123,65,0.35)",
@@ -437,6 +449,9 @@ const styles = StyleSheet.create({
   },
   visibilityPillTextPublic: {
     color: "#4ade80",
+  },
+  visibilityPillTextPending: {
+    color: "#fbbf24",
   },
   visibilityPillTextPrivate: {
     color: COLORS.primary,
