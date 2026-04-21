@@ -3,8 +3,10 @@ import { View, Text, TextInput, Pressable, Image, StyleSheet } from "react-nativ
 import { supabase } from "@/lib/supabase";
 import { router } from "expo-router";
 import { signInWithGoogle } from "@/auth/google";
+import { isLikelyNetworkError } from "@/lib/network";
 import { COLORS } from "@/lib/colors";
 import {
+  EMAIL_REGEX,
   mapAuthErrorMessage,
   sanitizeInput,
   validateConfirmPassword,
@@ -56,17 +58,26 @@ export default function AuthForm({ mode }: AuthFormProps) {
   };
 
   const validateBeforeSubmit = () => {
-    const normalizedEmail = sanitizeInput(email);
+    const normalizedIdentifier = sanitizeInput(email);
     const normalizedPassword = sanitizeInput(password);
     const normalizedConfirm = sanitizeInput(confirmPassword);
     const normalizedUsername = sanitizeInput(username);
 
-    const emailValidation = validateEmail(normalizedEmail);
-    if (!emailValidation.valid) {
-      return { valid: false, error: emailValidation.message };
-    }
-
     if (isLogin) {
+      // Accept an email address or a username (min 3 chars, no @ required)
+      const isEmailFormat = EMAIL_REGEX.test(normalizedIdentifier);
+      if (isEmailFormat) {
+        const emailValidation = validateEmail(normalizedIdentifier);
+        if (!emailValidation.valid) {
+          return { valid: false, error: emailValidation.message };
+        }
+      } else {
+        const usernameValidation = validateUsername(normalizedIdentifier);
+        if (!usernameValidation.valid) {
+          return { valid: false, error: "Enter a valid email or a username (at least 3 characters)." };
+        }
+      }
+
       const pwValidation = validateLoginPassword(normalizedPassword);
       if (!pwValidation.valid) {
         return { valid: false, error: pwValidation.message };
@@ -75,11 +86,16 @@ export default function AuthForm({ mode }: AuthFormProps) {
       return {
         valid: true,
         payload: {
-          email: normalizedEmail,
+          email: normalizedIdentifier,
           password: normalizedPassword,
           username: "",
         },
       };
+    }
+
+    const emailValidation = validateEmail(normalizedIdentifier);
+    if (!emailValidation.valid) {
+      return { valid: false, error: emailValidation.message };
     }
 
     const usernameValidation = validateUsername(normalizedUsername);
@@ -100,11 +116,28 @@ export default function AuthForm({ mode }: AuthFormProps) {
     return {
       valid: true,
       payload: {
-        email: normalizedEmail,
+        email: normalizedIdentifier,
         password: normalizedPassword,
         username: normalizedUsername,
       },
     };
+  };
+
+  const resolveLoginEmail = async (
+    identifier: string
+  ): Promise<string | { networkError: true } | null> => {
+    if (EMAIL_REGEX.test(identifier)) return identifier;
+
+    try {
+      const lookup = await supabase.functions.invoke("lookup_email_by_username", {
+        body: { username: identifier },
+      });
+      const email = lookup.data?.email as string | null | undefined;
+      return email ?? null;
+    } catch (err) {
+      if (isLikelyNetworkError(err)) return { networkError: true };
+      return null;
+    }
   };
 
   const loginWithEmail = async (
@@ -265,31 +298,43 @@ export default function AuthForm({ mode }: AuthFormProps) {
     }
 
     setLoading(true);
-    let result: AuthResult;
+    try {
+      let result: AuthResult;
 
-    if (isLogin) {
-      result = await loginWithEmail(validation.payload!.email, validation.payload!.password);
-    } else {
-      result = await registerWithEmail(
-        validation.payload!.username,
-        validation.payload!.email,
-        validation.payload!.password
-      );
-    }
+      if (isLogin) {
+        const identifier = validation.payload!.email;
+        const resolved = await resolveLoginEmail(identifier);
+        if (resolved === null) {
+          setFormError("No account found with that username.");
+          return;
+        }
+        if (typeof resolved !== "string") {
+          setFormError("Network error. Please try again.");
+          return;
+        }
+        result = await loginWithEmail(resolved, validation.payload!.password);
+      } else {
+        result = await registerWithEmail(
+          validation.payload!.username,
+          validation.payload!.email,
+          validation.payload!.password
+        );
+      }
 
-    setLoading(false);
-
-    if (!result.success) {
-      if (result.error === GOOGLE_ONLY_LOGIN_MESSAGE) {
-        setFormError(null);
+      if (!result.success) {
+        if (result.error === GOOGLE_ONLY_LOGIN_MESSAGE) {
+          setFormError(null);
+          return;
+        }
+        setFormError(result.error);
         return;
       }
-      setFormError(result.error);
-      return;
-    }
 
-    if (result.message) {
-      setSuccessMessage(result.message);
+      if (result.message) {
+        setSuccessMessage(result.message);
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -323,11 +368,11 @@ export default function AuthForm({ mode }: AuthFormProps) {
       )}
 
       <TextInput
-        placeholder="hello@company.com"
+        placeholder={isLogin ? "Email or Username" : "hello@company.com"}
         placeholderTextColor={COLORS.textSecondary}
         style={styles.input}
         autoCapitalize="none"
-        keyboardType="email-address"
+        keyboardType={isLogin ? "default" : "email-address"}
         value={email}
         onChangeText={(value) => {
           setEmail(value);

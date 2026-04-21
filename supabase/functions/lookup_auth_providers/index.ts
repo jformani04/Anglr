@@ -1,22 +1,9 @@
 // @ts-nocheck
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { allowIp } from "../_shared/rateLimit.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-
-// Lightweight in-memory throttling for account-enumeration reduction.
-const RATE_WINDOW_MS = 60_000;
-const RATE_LIMIT = 10;
-const ipHits = new Map<string, number[]>();
-
-function allowIp(ip: string) {
-  const now = Date.now();
-  const current = (ipHits.get(ip) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
-  if (current.length >= RATE_LIMIT) return false;
-  current.push(now);
-  ipHits.set(ip, current);
-  return true;
-}
 
 function normalizeProviders(user: any): string[] {
   const providers =

@@ -1,5 +1,6 @@
 import { COLORS } from "@/lib/colors";
 import { supabase } from "@/lib/supabase";
+import { EMAIL_REGEX } from "@/lib/validation/authValidation";
 import { router } from "expo-router";
 import { useState } from "react";
 import {
@@ -28,7 +29,7 @@ export default function ForgotPassword() {
       return;
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+    if (!EMAIL_REGEX.test(trimmed)) {
       setError("Please enter a valid email address.");
       return;
     }
@@ -37,7 +38,9 @@ export default function ForgotPassword() {
       setLoading(true);
       setError(null);
 
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(trimmed);
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(trimmed, {
+        redirectTo: "anglr://auth/reset-password",
+      });
 
       if (resetError) throw resetError;
 
@@ -62,9 +65,13 @@ export default function ForgotPassword() {
 
         {sent ? (
           <View style={styles.successBox}>
+            <Text style={styles.successTitle}>Check your inbox</Text>
             <Text style={styles.successText}>
-              Check your inbox — a reset link has been sent to {email.trim().toLowerCase()}.
+              If an account with that email exists, you'll receive a password reset link shortly.
             </Text>
+            <TouchableOpacity onPress={() => router.back()} style={styles.successBackButton}>
+              <Text style={styles.successBackText}>Back to Sign In</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           <>
@@ -171,13 +178,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(100,200,120,0.35)",
     borderRadius: 14,
-    padding: 16,
+    padding: 20,
     marginBottom: 24,
+    gap: 10,
+  },
+  successTitle: {
+    color: "#7EE8A2",
+    fontSize: 16,
+    fontWeight: "700",
   },
   successText: {
     color: "#7EE8A2",
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 21,
+  },
+  successBackButton: {
+    marginTop: 4,
+    alignSelf: "flex-start",
+  },
+  successBackText: {
+    color: "#7EE8A2",
+    fontSize: 14,
+    fontWeight: "600",
+    textDecorationLine: "underline",
   },
   backLink: {
     marginTop: 24,

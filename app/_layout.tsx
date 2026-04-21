@@ -25,10 +25,11 @@ export default function RootLayout() {
     const inTabsGroup = segments[0] === "(tabs)";
     const inLogRoute = segments[0] === "log";
     const inCallbackRoute = segments[0] === "auth" && segments[1] === "callback";
+    const inResetPasswordRoute = segments[0] === "auth" && segments[1] === "reset-password";
     const inProtectedSignedInRoute = inTabsGroup || inLogRoute;
 
     const applyGuard = (hasSession: boolean) => {
-      if (inCallbackRoute) return;
+      if (inCallbackRoute || inResetPasswordRoute) return;
       if (hasSession) {
         if (!inProtectedSignedInRoute) router.replace("/home");
       } else if (inProtectedSignedInRoute) {
@@ -82,6 +83,7 @@ export default function RootLayout() {
           <Stack.Screen name="index" />
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="auth/callback" />
+          <Stack.Screen name="auth/reset-password" />
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="log" />
         </Stack>
