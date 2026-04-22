@@ -13,7 +13,7 @@ import { supabase } from "@/lib/supabase";
 import { getProfile, LengthUnit, TempUnit, WeightUnit } from "@/lib/profile";
 import { router, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
-import { ArrowLeft, Camera, ChevronDown } from "lucide-react-native";
+import { ArrowLeft, Camera, ChevronDown, Globe, Lock, Users } from "lucide-react-native";
 import LocationPickerModal, { LocationResult } from "@/components/LocationPickerModal";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -89,6 +89,7 @@ const EMPTY_FORM: CatchLogForm = {
   method: "",
   notes: "",
   isPublic: false,
+  isFriendsOnly: false,
   isFavorite: false,
   hideLocation: false,
   date: "",
@@ -661,28 +662,19 @@ export default function EditCatchScreen() {
           <Text style={styles.sectionLabel}>Species</Text>
           <TextInput
             style={styles.input}
-            placeholder="Search species"
+            placeholder="e.g. Largemouth Bass"
             placeholderTextColor={COLORS.textSecondary}
             value={speciesQuery}
             onChangeText={(v) => {
               setSpeciesQuery(v);
-              setShowSpeciesMatches(true);
-
-              const exactMatch = FRESHWATER_SPECIES.find(
-                (species) => species.toLowerCase() === v.trim().toLowerCase()
-              );
-              if (exactMatch) {
-                setField("species", exactMatch);
-              }
+              setField("species", v.trim());
+              setShowSpeciesMatches(v.trim().length > 0);
             }}
-            onFocus={() => setShowSpeciesMatches(true)}
+            onFocus={() => {
+              if (speciesQuery.trim().length > 0) setShowSpeciesMatches(true);
+            }}
             onBlur={() => {
-              setTimeout(() => {
-                setShowSpeciesMatches(false);
-                if (!hasExactSpeciesSelection) {
-                  setSpeciesQuery(form.species);
-                }
-              }, 120);
+              setTimeout(() => setShowSpeciesMatches(false), 120);
             }}
           />
           {showSpeciesMatches && (
@@ -702,15 +694,10 @@ export default function EditCatchScreen() {
               ))}
               {speciesMatches.length === 0 && (
                 <Text style={styles.speciesHint}>
-                  No matches. Keep typing to find a valid species.
+                  No matches — your entry will be saved as typed.
                 </Text>
               )}
             </View>
-          )}
-          {!hasExactSpeciesSelection && speciesQuery.trim().length > 0 && (
-            <Text style={styles.inlineError}>
-              Please select a species from the dropdown options.
-            </Text>
           )}
           </View>
 
@@ -1028,25 +1015,44 @@ export default function EditCatchScreen() {
 
           <View style={styles.sectionBubble}>
           <Text style={styles.groupTitle}>Privacy & Visibility</Text>
-          <View style={styles.toggleRow}>
-            <View>
-              <Text style={styles.toggleTitle}>
-                {form.isPublic ? "Public" : "Private"}
-              </Text>
-              <Text style={styles.toggleSubtitle}>
-                Private catches are only visible to you
-              </Text>
-            </View>
-            <Switch
-              value={form.isPublic}
-              onValueChange={(v) => setField("isPublic", v)}
-              trackColor={{
-                false: "rgba(221,220,219,0.2)",
-                true: COLORS.primary,
-              }}
-              thumbColor={COLORS.text}
-            />
+
+          {/* 3-way visibility selector */}
+          <View style={styles.visibilityRow}>
+            {(
+              [
+                { key: "private",  label: "Private", Icon: Lock,  desc: "Only you" },
+                { key: "friends",  label: "Friends", Icon: Users, desc: "Accepted friends" },
+                { key: "public",   label: "Public",  Icon: Globe, desc: "Everyone" },
+              ] as const
+            ).map(({ key, label, Icon, desc }) => {
+              const active =
+                key === "public"  ? form.isPublic :
+                key === "friends" ? (!form.isPublic && form.isFriendsOnly) :
+                                    (!form.isPublic && !form.isFriendsOnly);
+              return (
+                <Pressable
+                  key={key}
+                  style={[styles.visibilityOption, active && styles.visibilityOptionActive]}
+                  onPress={() => {
+                    if (key === "public")  { setField("isPublic", true);  setField("isFriendsOnly", false); }
+                    if (key === "friends") { setField("isPublic", false); setField("isFriendsOnly", true);  }
+                    if (key === "private") { setField("isPublic", false); setField("isFriendsOnly", false); }
+                  }}
+                >
+                  <Icon
+                    size={16}
+                    strokeWidth={2.2}
+                    color={active ? COLORS.text : COLORS.textSecondary}
+                  />
+                  <Text style={[styles.visibilityLabel, active && styles.visibilityLabelActive]}>
+                    {label}
+                  </Text>
+                  <Text style={styles.visibilityDesc}>{desc}</Text>
+                </Pressable>
+              );
+            })}
           </View>
+
           <View style={styles.toggleRow}>
             <View>
               <Text style={styles.toggleTitle}>
@@ -1426,6 +1432,39 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     flexShrink: 0,
+  },
+  visibilityRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  visibilityOption: {
+    flex: 1,
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(0,0,0,0.12)",
+  },
+  visibilityOptionActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: "rgba(253,123,65,0.15)",
+  },
+  visibilityLabel: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  visibilityLabelActive: {
+    color: COLORS.text,
+  },
+  visibilityDesc: {
+    color: COLORS.textSecondary,
+    fontSize: 10,
+    textAlign: "center",
   },
   toggleRow: {
     marginTop: 14,

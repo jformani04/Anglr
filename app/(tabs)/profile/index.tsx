@@ -28,6 +28,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -37,7 +38,7 @@ import {
   View,
 } from "react-native";
 
-type ModalType = "none" | "email" | "password";
+type ModalType = "none" | "email" | "password" | "set-password";
 
 function parseMeasurement(val: string): number {
   const m = val.match(/[\d.]+/);
@@ -88,6 +89,7 @@ export default function ProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [username, setUsername] = useState("");
+  const [savedUsername, setSavedUsername] = useState("");
   const [bio, setBio] = useState("");
   const [lengthUnit, setLengthUnit] = useState<LengthUnit>("cm");
   const [weightUnit, setWeightUnit] = useState<WeightUnit>("kg");
@@ -127,6 +129,7 @@ export default function ProfileScreen() {
           })(),
         ]);
         setUsername(profile.username);
+        setSavedUsername(profile.username);
         setBio(profile.bio);
         setLengthUnit(profile.unitsLength);
         setWeightUnit(profile.unitsWeight);
@@ -138,7 +141,6 @@ export default function ProfileScreen() {
         setAuthProvider(profile.authProvider);
         setAuthProviders(profile.authProviders);
         lastSavedRef.current = JSON.stringify({
-          username: profile.username,
           bio: profile.bio,
           unitsLength: profile.unitsLength,
           unitsWeight: profile.unitsWeight,
@@ -160,7 +162,6 @@ export default function ProfileScreen() {
   useEffect(() => {
     if (!hydratedRef.current) return;
     const payload = {
-      username,
       bio,
       unitsLength: lengthUnit,
       unitsWeight: weightUnit,
@@ -186,7 +187,7 @@ export default function ProfileScreen() {
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [username, bio, lengthUnit, weightUnit, temperatureUnit, avatarUrl]);
+  }, [bio, lengthUnit, weightUnit, temperatureUnit, avatarUrl]);
 
   const changeAvatar = async () => {
     try {
@@ -210,6 +211,64 @@ export default function ProfileScreen() {
       Alert.alert("Upload Failed", err?.message ?? "Unable to upload avatar.");
     } finally {
       setUploadingAvatar(false);
+    }
+  };
+
+  const handleSaveUsername = () => {
+    const trimmed = username.trim();
+    if (!trimmed || trimmed === savedUsername) return;
+    Alert.alert(
+      "Change Username",
+      `Save username as "${trimmed}"?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Save",
+          onPress: async () => {
+            try {
+              setSaving(true);
+              await upsertProfile({ username: trimmed });
+              setSavedUsername(trimmed);
+              setUsername(trimmed);
+            } catch (err: any) {
+              Alert.alert("Save Failed", err?.message ?? "Unable to save username.");
+            } finally {
+              setSaving(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleSetPassword = async () => {
+    try {
+      const value = passwordDraft.trim();
+      const confirm = confirmPasswordDraft.trim();
+
+      const strength = validateRegisterPassword(value);
+      if (!strength.valid) {
+        Alert.alert("Weak Password", strength.message ?? "Password does not meet requirements.");
+        return;
+      }
+      if (value !== confirm) {
+        Alert.alert("Password Mismatch", "Passwords do not match. Please try again.");
+        return;
+      }
+
+      const { error } = await supabase.auth.updateUser({ password: value });
+      if (error) throw error;
+
+      const refreshed = await getProfile();
+      setAuthProvider(refreshed.authProvider);
+      setAuthProviders(refreshed.authProviders);
+
+      Alert.alert("Password Set", "You can now log in with your email and this password.");
+      setPasswordDraft("");
+      setConfirmPasswordDraft("");
+      setModalType("none");
+    } catch (err: any) {
+      Alert.alert("Failed", err?.message ?? "Unable to set password.");
     }
   };
 
@@ -373,12 +432,19 @@ export default function ProfileScreen() {
             </View>
 
             <Text style={styles.fieldLabel}>Username</Text>
-            <TextInput
-              value={username}
-              onChangeText={setUsername}
-              style={styles.input}
-              placeholderTextColor={COLORS.textSecondary}
-            />
+            <View style={styles.usernameRow}>
+              <TextInput
+                value={username}
+                onChangeText={setUsername}
+                style={[styles.input, styles.usernameInput]}
+                placeholderTextColor={COLORS.textSecondary}
+              />
+              {username.trim() !== savedUsername && username.trim().length > 0 && (
+                <Pressable style={styles.saveUsernameBtn} onPress={handleSaveUsername}>
+                  <Text style={styles.saveUsernameBtnText}>Save</Text>
+                </Pressable>
+              )}
+            </View>
 
             <Text style={styles.fieldLabel}>Bio</Text>
             <TextInput
@@ -577,12 +643,17 @@ export default function ProfileScreen() {
             </View>
           </Pressable>
 
-          {isGoogleOnly ? (
-            <Text style={styles.securityNotice}>
-              You are signed in with Google, so email and password changes are managed by your
-              Google account.
-            </Text>
-          ) : null}
+          {isGoogleOnly && (
+            <Pressable style={styles.actionCard} onPress={() => setModalType("set-password")}>
+              <View style={styles.actionIcon}>
+                <Lock color={COLORS.primary} size={20} strokeWidth={2} />
+              </View>
+              <View>
+                <Text style={styles.actionTitle}>Set Anglr Password</Text>
+                <Text style={styles.actionSub}>Log in with email and password too</Text>
+              </View>
+            </Pressable>
+          )}
 
           {authProviders.includes("email") && !authProviders.includes("google") && (
             <Pressable style={styles.actionCard} onPress={handleLinkGoogle}>
@@ -621,35 +692,70 @@ export default function ProfileScreen() {
             </View>
           </Pressable>
         </View>
+
+        <View>
+          <Text style={styles.sectionLabel}>Legal</Text>
+          <Pressable
+            style={styles.actionCard}
+            onPress={() => Linking.openURL("https://anglr-web.vercel.app/privacy")}
+          >
+            <View style={styles.actionIcon}>
+              <Text style={styles.legalIcon}>🔒</Text>
+            </View>
+            <View>
+              <Text style={styles.actionTitle}>Privacy Policy</Text>
+              <Text style={styles.actionSub}>How we handle your data</Text>
+            </View>
+          </Pressable>
+        </View>
       </ScrollView>
 
       <Modal transparent visible={modalType !== "none"} animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>
-              {modalType === "email" ? "Change Email" : "Change Password"}
+              {modalType === "email"
+                ? "Change Email"
+                : modalType === "set-password"
+                ? "Set Anglr Password"
+                : "Change Password"}
             </Text>
-            <TextInput
-              value={modalType === "email" ? emailDraft : passwordDraft}
-              onChangeText={modalType === "email" ? setEmailDraft : setPasswordDraft}
-              autoCapitalize="none"
-              secureTextEntry={modalType === "password"}
-              keyboardType={modalType === "email" ? "email-address" : "default"}
-              placeholder={modalType === "email" ? "new@email.com" : "New password"}
-              placeholderTextColor={COLORS.textSecondary}
-              style={styles.modalInput}
-            />
-            {modalType === "password" && (
+
+            {modalType === "email" && (
               <TextInput
-                value={confirmPasswordDraft}
-                onChangeText={setConfirmPasswordDraft}
+                value={emailDraft}
+                onChangeText={setEmailDraft}
                 autoCapitalize="none"
-                secureTextEntry
-                placeholder="Confirm new password"
+                keyboardType="email-address"
+                placeholder="new@email.com"
                 placeholderTextColor={COLORS.textSecondary}
-                style={[styles.modalInput, { marginTop: 10 }]}
+                style={styles.modalInput}
               />
             )}
+
+            {(modalType === "password" || modalType === "set-password") && (
+              <>
+                <TextInput
+                  value={passwordDraft}
+                  onChangeText={setPasswordDraft}
+                  autoCapitalize="none"
+                  secureTextEntry
+                  placeholder="New password"
+                  placeholderTextColor={COLORS.textSecondary}
+                  style={styles.modalInput}
+                />
+                <TextInput
+                  value={confirmPasswordDraft}
+                  onChangeText={setConfirmPasswordDraft}
+                  autoCapitalize="none"
+                  secureTextEntry
+                  placeholder="Confirm new password"
+                  placeholderTextColor={COLORS.textSecondary}
+                  style={[styles.modalInput, { marginTop: 10 }]}
+                />
+              </>
+            )}
+
             <View style={styles.modalActions}>
               <Pressable
                 style={styles.modalSecondary}
@@ -663,7 +769,13 @@ export default function ProfileScreen() {
               </Pressable>
               <Pressable
                 style={styles.modalPrimary}
-                onPress={modalType === "email" ? handleChangeEmail : handleChangePassword}
+                onPress={
+                  modalType === "email"
+                    ? handleChangeEmail
+                    : modalType === "set-password"
+                    ? handleSetPassword
+                    : handleChangePassword
+                }
               >
                 <Text style={styles.modalPrimaryText}>Confirm</Text>
               </Pressable>
@@ -804,6 +916,25 @@ const styles = StyleSheet.create({
     marginTop: 12,
     color: COLORS.textSecondary,
     fontSize: 12,
+  },
+  usernameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  usernameInput: {
+    flex: 1,
+  },
+  saveUsernameBtn: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  saveUsernameBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 13,
   },
   // Stats card
   statsCard: {
@@ -953,6 +1084,9 @@ const styles = StyleSheet.create({
   deleteSub: {
     color: "#fca5a5",
     fontSize: 12,
+  },
+  legalIcon: {
+    fontSize: 18,
   },
   modalBackdrop: {
     flex: 1,

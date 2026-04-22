@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { View, Text, TextInput, Pressable, Image, StyleSheet } from "react-native";
+import { Linking, View, Text, TextInput, Pressable, Image, StyleSheet } from "react-native";
 import { supabase } from "@/lib/supabase";
 import { router } from "expo-router";
 import { signInWithGoogle } from "@/auth/google";
@@ -467,6 +467,18 @@ export default function AuthForm({ mode }: AuthFormProps) {
           {isLogin ? "Sign in with Google" : "Sign up with Google"}
         </Text>
       </Pressable>
+
+      {!isLogin && (
+        <Text style={styles.privacyText}>
+          By creating an account, you agree to our{" "}
+          <Text
+            style={styles.privacyLink}
+            onPress={() => Linking.openURL("https://anglr-web.vercel.app/privacy")}
+          >
+            Privacy Policy
+          </Text>
+        </Text>
+      )}
     </View>
   );
 }
@@ -590,5 +602,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 6,
     opacity: 0.7,
+  },
+  privacyText: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 16,
+    lineHeight: 18,
+  },
+  privacyLink: {
+    color: COLORS.primary,
+    textDecorationLine: "underline",
   },
 });

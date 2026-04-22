@@ -28,11 +28,12 @@ Deno.serve(async (req) => {
 
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Find user_id by username (case-insensitive)
+    // Find user_id by username — match against the pre-lowercased column
+    // so lookup is always case-insensitive regardless of stored casing.
     const { data: profile } = await admin
       .from("profiles")
       .select("id")
-      .ilike("username", username)
+      .eq("username_lower", username.toLowerCase())
       .single();
 
     if (!profile?.id) {

@@ -24,6 +24,7 @@ export interface CatchLog {
   method: string;
   notes: string;
   isPublic: boolean;
+  isFriendsOnly: boolean;
   isFavorite: boolean;
   hideLocation: boolean;
   date: string;
@@ -55,6 +56,7 @@ type CatchLogRow = {
   method: string | null;
   notes: string | null;
   is_public: boolean | null;
+  is_friends_only: boolean | null;
   is_favorite: boolean | null;
   hide_location: boolean | null;
   date: string | null;
@@ -75,6 +77,7 @@ type CatchLogUpdateRow = {
   method: string;
   notes: string;
   is_public: boolean;
+  is_friends_only: boolean;
   is_favorite: boolean;
   hide_location: boolean;
   date: string;
@@ -136,6 +139,7 @@ export function mapCatchLogRowToCatchLog(row: CatchLogRow): CatchLog {
     method: row.method ?? "",
     notes: row.notes ?? "",
     isPublic: row.is_public ?? false,
+    isFriendsOnly: row.is_friends_only ?? false,
     isFavorite: row.is_favorite ?? false,
     hideLocation: row.hide_location ?? false,
     date: row.date ?? "",
@@ -158,6 +162,7 @@ export function mapCatchLogToUpdateRow(catchLog: CatchLog): CatchLogUpdateRow {
     method: catchLog.method,
     notes: catchLog.notes,
     is_public: catchLog.isPublic,
+    is_friends_only: catchLog.isFriendsOnly,
     is_favorite: catchLog.isFavorite,
     hide_location: catchLog.hideLocation,
     date: catchLog.date,
@@ -334,6 +339,7 @@ export async function createCatchLog(input: CatchLogInsertInput): Promise<Create
     method: catchLog.method,
     notes: catchLog.notes,
     is_public: catchLog.isPublic,
+    is_friends_only: catchLog.isFriendsOnly,
     is_favorite: catchLog.isFavorite,
     hide_location: catchLog.hideLocation,
     date: catchLog.date,
@@ -486,12 +492,16 @@ export async function seedDevCatchLog(userId: string): Promise<void> {
 }
 
 export async function syncPendingCatchLogs(): Promise<number> {
+  // getSession is cached and never throws — use it to bail out fast when signed out
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return 0;
+
   const {
     data: { user },
     error: userError,
   } = await supabase.auth.getUser();
 
-  if (userError) throw userError;
+  if (userError) return 0;
   if (!user) return 0;
 
   const isOnline = await refreshNetworkStatus();
@@ -519,6 +529,7 @@ export async function syncPendingCatchLogs(): Promise<number> {
         method: catchLog.method,
         notes: catchLog.notes,
         is_public: catchLog.isPublic,
+        is_friends_only: catchLog.isFriendsOnly,
         is_favorite: catchLog.isFavorite,
         hide_location: catchLog.hideLocation,
         date: catchLog.date,
@@ -596,22 +607,34 @@ async function runCatchMutationWithCoordinateFallback(
 
   const err = attempt.error;
 
-  // Gracefully degrade if optional columns are missing from the schema
-  const missingOptional =
+  // Coordinate columns are optional — retry without them if the schema doesn't
+  // have them yet. Strip only coordinates here; is_favorite and hide_location
+  // are separate concerns and must not be lost in this fallback.
+  if (isMissingColumnError(err, "latitude") || isMissingColumnError(err, "longitude")) {
+    const withoutCoords = stripOptionalColumns(payload, ["latitude", "longitude"]);
+    const retry = await execute(withoutCoords);
+    if (!retry.error) return null;
+
+    // If still failing (e.g. other legacy columns also missing), drop them too.
+    if (
+      isMissingColumnError(retry.error, "hide_location") ||
+      isMissingColumnError(retry.error, "is_favorite")
+    ) {
+      const legacy = stripOptionalColumns(withoutCoords, ["hide_location", "is_favorite"]);
+      return (await execute(legacy)).error;
+    }
+
+    return retry.error;
+  }
+
+  // Handle case where only the boolean flags are missing (no coordinate issue).
+  if (
     isMissingColumnError(err, "hide_location") ||
     isMissingColumnError(err, "is_favorite") ||
-    isMissingColumnError(err, "latitude") ||
-    isMissingColumnError(err, "longitude");
-
-  if (missingOptional) {
-    const fallback = stripOptionalColumns(payload, [
-      "hide_location",
-      "is_favorite",
-      "latitude",
-      "longitude",
-    ]);
-    const retry = await execute(fallback);
-    return retry.error;
+    isMissingColumnError(err, "is_friends_only")
+  ) {
+    const legacy = stripOptionalColumns(payload, ["hide_location", "is_favorite", "is_friends_only"]);
+    return (await execute(legacy)).error;
   }
 
   return err;

@@ -39,7 +39,7 @@ export default function ForgotPassword() {
       setError(null);
 
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(trimmed, {
-        redirectTo: "anglr://auth/reset-password",
+        redirectTo: "https://anglr-web.vercel.app/reset-password",
       });
 
       if (resetError) throw resetError;
