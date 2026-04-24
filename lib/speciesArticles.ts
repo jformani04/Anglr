@@ -18,6 +18,12 @@ export interface SpeciesArticle {
   updatedAt: string;
 }
 
+export interface SpeciesArticleSummary {
+  slug: string;
+  name: string;
+  featuredImageUrl: string | null;
+}
+
 type SpeciesArticleRow = {
   id: string;
   slug: string;
@@ -73,6 +79,18 @@ function mapRowToArticle(row: SpeciesArticleRow): SpeciesArticle {
   };
 }
 
+function mapRowToSummary(row: {
+  slug: string;
+  name: string;
+  featured_image_url: string | null;
+}): SpeciesArticleSummary {
+  return {
+    slug: row.slug,
+    name: row.name,
+    featuredImageUrl: row.featured_image_url,
+  };
+}
+
 function getCacheKey(slug: string) {
   return `${CACHE_PREFIX}${slug}`;
 }
@@ -103,6 +121,26 @@ export async function getSpeciesArticleBySlug(
   if (!data) return null;
 
   return mapRowToArticle(data as SpeciesArticleRow);
+}
+
+export async function getSpeciesArticleSummaries(): Promise<
+  SpeciesArticleSummary[]
+> {
+  const { data, error } = await supabase
+    .from("species_articles")
+    .select("slug, name, featured_image_url");
+
+  if (error) throw error;
+
+  return (data ?? []).map((row) =>
+    mapRowToSummary(
+      row as {
+        slug: string;
+        name: string;
+        featured_image_url: string | null;
+      }
+    )
+  );
 }
 
 export async function getCachedSpeciesArticle(

@@ -9,17 +9,24 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useIsFocused } from "@react-navigation/native";
 import { router } from "expo-router";
+import { applySortToCatches, SORT_DEFINITIONS, SortConfig } from "@/lib/catchSort";
 import {
   ArrowLeft,
+  ArrowUpDown,
+  Calendar,
   Check,
   CheckSquare,
+  Fish,
   Globe,
   Lock,
+  MapPin,
   RefreshCcw,
+  Ruler,
   Square,
   Star,
   Tag,
   Trash2,
+  Weight,
   X,
 } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -35,11 +42,6 @@ import {
 } from "react-native";
 
 const DEBUG = process.env.EXPO_PUBLIC_DEBUG === "1";
-const VIEW_CATCHES_ICON = require("@/assets/images/viewCatches.png");
-const RULER_ICON = require("@/assets/images/ruler.png");
-const PINPOINT_ICON = require("@/assets/images/pinpoint.png");
-const CALENDAR_ICON = require("@/assets/images/calendar.png");
-const WEIGHT_ICON = require("@/assets/images/weight.png");
 
 // ── Memoized card component ────────────────────────────────────────────────
 // Defined outside CatchesScreen so its identity is stable across parent renders.
@@ -74,7 +76,7 @@ const CatchCard = memo(function CatchCard({
             <Image source={{ uri: catchLog.imageUrl }} style={styles.thumbImage} />
           ) : (
             <View style={[styles.thumbImage, styles.imageFallback]}>
-              <Image source={VIEW_CATCHES_ICON} style={styles.fallbackThumbIcon} />
+              <Fish color={COLORS.textSecondary} size={26} strokeWidth={1.5} />
             </View>
           )}
           {selectionMode && (
@@ -132,23 +134,23 @@ const CatchCard = memo(function CatchCard({
 
           <View style={styles.lengthWeightRow}>
             <View style={styles.inlineRow}>
-              <Image source={RULER_ICON} style={styles.metaIcon} />
+              <Ruler color={COLORS.textSecondary} size={12} strokeWidth={2} />
               <Text style={styles.metaText}>{catchLog.length || "-"}</Text>
             </View>
             <Text style={styles.dot}>•</Text>
             <View style={styles.inlineRow}>
-              <Image source={WEIGHT_ICON} style={styles.metaIcon} />
+              <Weight color={COLORS.textSecondary} size={12} strokeWidth={2} />
               <Text style={styles.metaText}>{catchLog.weight || "-"}</Text>
             </View>
           </View>
 
           <View style={styles.locationDateRow}>
-            <Image source={PINPOINT_ICON} style={styles.metaIconLarge} />
+            <MapPin color={COLORS.textSecondary} size={12} strokeWidth={2} />
             <Text style={styles.locationText} numberOfLines={1}>
               {catchLog.location || "Unknown location"}
             </Text>
             <Text style={styles.dot}>•</Text>
-            <Image source={CALENDAR_ICON} style={styles.metaIconLarge} />
+            <Calendar color={COLORS.textSecondary} size={12} strokeWidth={2} />
             <Text style={styles.dateText} numberOfLines={1}>
               {catchLog.date || "No date"}
             </Text>
@@ -188,6 +190,10 @@ export default function CatchesScreen() {
   // Group filter
   const [activeGroupFilter, setActiveGroupFilter] = useState<string | null>(null);
 
+  // Sort
+  const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
+  const [showSortPanel, setShowSortPanel] = useState(false);
+
   // Ref so card-level callbacks can read current selectionMode without being recreated
   const selectionModeRef = useRef(selectionMode);
   selectionModeRef.current = selectionMode;
@@ -214,6 +220,13 @@ export default function CatchesScreen() {
           )
         : catches,
     [catches, activeGroupFilter]
+  );
+
+  // Sorted view of filteredCatches — only used for the rendered card list.
+  // All selection/batch logic continues to operate on filteredCatches directly.
+  const displayCatches = useMemo(
+    () => applySortToCatches(filteredCatches, sortConfig),
+    [filteredCatches, sortConfig]
   );
 
   const selectedCatches = useMemo(
@@ -478,12 +491,84 @@ export default function CatchesScreen() {
             </Text>
           </Pressable>
 
+          <Pressable
+            style={[
+              styles.secondaryAction,
+              (sortConfig || showSortPanel) && styles.secondaryActionActive,
+            ]}
+            onPress={() => setShowSortPanel((v) => !v)}
+          >
+            <ArrowUpDown
+              color={sortConfig || showSortPanel ? COLORS.primary : COLORS.textSecondary}
+              size={16}
+              strokeWidth={2.2}
+            />
+            <Text
+              style={[
+                styles.secondaryActionText,
+                (sortConfig || showSortPanel) && styles.secondaryActionActiveText,
+              ]}
+            >
+              {sortConfig
+                ? `${SORT_DEFINITIONS.find((d) => d.field === sortConfig.field)?.label} ${sortConfig.direction === "asc" ? "↑" : "↓"}`
+                : "Sort"}
+            </Text>
+          </Pressable>
+
           {__DEV__ && (
             <Pressable style={styles.devAction} onPress={handleSeedDevCatch}>
               <Text style={styles.devActionText}>+ Add Test Catch</Text>
             </Pressable>
           )}
         </View>
+
+        {/* Sort panel */}
+        {showSortPanel && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.sortPanelContent}
+            style={styles.sortPanel}
+          >
+            {SORT_DEFINITIONS.map((def) => {
+              const isActive = sortConfig?.field === def.field;
+              return (
+                <Pressable
+                  key={def.field}
+                  style={[styles.sortPill, isActive && styles.sortPillActive]}
+                  onPress={() => {
+                    if (isActive) {
+                      setSortConfig((prev) =>
+                        prev
+                          ? { ...prev, direction: prev.direction === "asc" ? "desc" : "asc" }
+                          : null
+                      );
+                    } else {
+                      setSortConfig({ field: def.field, direction: def.defaultDirection });
+                      setShowSortPanel(false);
+                    }
+                  }}
+                >
+                  <Text style={[styles.sortPillText, isActive && styles.sortPillTextActive]}>
+                    {def.label}
+                    {isActive ? (sortConfig!.direction === "asc" ? " ↑" : " ↓") : ""}
+                  </Text>
+                </Pressable>
+              );
+            })}
+            {sortConfig && (
+              <Pressable
+                style={styles.sortClear}
+                onPress={() => {
+                  setSortConfig(null);
+                  setShowSortPanel(false);
+                }}
+              >
+                <X color={COLORS.textSecondary} size={14} strokeWidth={2.5} />
+              </Pressable>
+            )}
+          </ScrollView>
+        )}
 
         {/* Group filter pills */}
         {groups.length > 0 && (
@@ -597,7 +682,7 @@ export default function CatchesScreen() {
         ) : filteredCatches.length === 0 ? (
           <View style={styles.centerCard}>
             <View style={styles.emptyIconWrap}>
-              <Image source={VIEW_CATCHES_ICON} style={styles.emptyIconImage} />
+              <Fish color={COLORS.textSecondary} size={48} strokeWidth={1.5} />
             </View>
             <Text style={styles.emptyTitle}>
               {activeGroupFilter
@@ -612,7 +697,7 @@ export default function CatchesScreen() {
           </View>
         ) : (
           <View style={styles.list}>
-            {filteredCatches.map((catchLog) => (
+            {displayCatches.map((catchLog) => (
               <CatchCard
                 key={catchLog.id}
                 catchLog={catchLog}
@@ -782,6 +867,46 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     fontSize: 13,
     fontWeight: "700",
+  },
+  // Sort panel
+  sortPanel: {
+    marginBottom: 10,
+  },
+  sortPanelContent: {
+    flexDirection: "row",
+    gap: 8,
+    paddingRight: 8,
+  },
+  sortPill: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.09)",
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  sortPillActive: {
+    backgroundColor: "rgba(253,123,65,0.14)",
+    borderColor: "rgba(253,123,65,0.4)",
+  },
+  sortPillText: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  sortPillTextActive: {
+    color: COLORS.primary,
+  },
+  sortClear: {
+    width: 32,
+    height: 32,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.09)",
+    alignSelf: "center",
   },
   // Group filter
   groupFilterScroll: {

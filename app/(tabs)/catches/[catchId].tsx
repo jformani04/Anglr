@@ -31,9 +31,9 @@ import {
   View,
 } from "react-native";
 import { FRESHWATER_SPECIES, getSpeciesMatches } from "@/lib/freshwaterSpecies";
+import { checkText, validateImageAsset } from "@/lib/moderation";
 
 const DEBUG = process.env.EXPO_PUBLIC_DEBUG === "1";
-const CAMERA_ICON = require("@/assets/images/camera.png");
 const LENGTH_UNITS: LengthUnit[] = ["cm", "in"];
 const WEIGHT_UNITS: WeightUnit[] = ["kg", "lbs"];
 const TEMPERATURE_UNITS = ["c", "f"] as const;
@@ -431,6 +431,13 @@ export default function EditCatchScreen() {
   const handleSave = useCallback(async () => {
     if (!catchId) return;
 
+    const notesCheck = checkText(form.notes);
+    if (!notesCheck.ok) {
+      setSaveStatus("error");
+      setError(notesCheck.reason);
+      return;
+    }
+
     try {
       setSaving(true);
       setSaveStatus("saving");
@@ -585,8 +592,15 @@ export default function EditCatchScreen() {
 
       if (result.canceled || !result.assets?.[0]?.uri) return;
 
+      const asset = result.assets[0];
+      const check = validateImageAsset(asset);
+      if (!check.ok) {
+        Alert.alert("Photo Not Allowed", check.reason);
+        return;
+      }
+
       setUploadingImage(true);
-      const publicUrl = await uploadCatchPhoto(result.assets[0].uri);
+      const publicUrl = await uploadCatchPhoto(asset.uri);
       setField("imageUrl", publicUrl);
       setPendingLocalUri(null);
     } catch (err: any) {
@@ -651,7 +665,7 @@ export default function EditCatchScreen() {
           <Image source={{ uri: form.imageUrl }} style={styles.heroImage} />
         ) : (
           <View style={[styles.heroImage, styles.heroPlaceholder]}>
-            <Image source={CAMERA_ICON} style={styles.heroPlaceholderIcon} />
+            <Camera color={COLORS.textSecondary} size={40} strokeWidth={1.5} />
             <Text style={styles.heroPlaceholderText}>No image</Text>
           </View>
         )}

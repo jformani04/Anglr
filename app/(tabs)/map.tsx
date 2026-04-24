@@ -5,6 +5,7 @@ import MapZoomControls from "@/components/MapZoomControls";
 import { CatchLog, getUserCatchLogs } from "@/lib/catches";
 import { getUserFacingErrorMessage, withTimeout } from "@/lib/errorHandling";
 import {
+  BoundingBox,
   FriendMapPin,
   FriendProfile,
   getFriendMapPins,
@@ -25,6 +26,7 @@ import {
   Text,
   View,
 } from "react-native";
+import ClusterMapView from "react-native-map-clustering";
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -63,6 +65,18 @@ const DEFAULT_REGION = {
 const MAP_LOAD_TIMEOUT_MS = 12000;
 const EMPTY_STATE: PinState = { pins: [], loading: false, error: null };
 const DEBUG = process.env.EXPO_PUBLIC_DEBUG === "1";
+const GLOBAL_REFETCH_DEBOUNCE_MS = 600;
+
+function computeBbox(region: Region): BoundingBox {
+  const halfLat = region.latitudeDelta / 2;
+  const halfLng = region.longitudeDelta / 2;
+  return {
+    minLat: region.latitude - halfLat,
+    maxLat: region.latitude + halfLat,
+    minLng: region.longitude - halfLng,
+    maxLng: region.longitude + halfLng,
+  };
+}
 
 function hasValidCoords(catchLog: CatchLog) {
   return (
@@ -150,6 +164,13 @@ export default function CatchMapScreen() {
   const [currentRegion, setCurrentRegion] = useState<Region>(DEFAULT_REGION);
   const [isMapReady, setIsMapReady] = useState(false);
   const [isMapLaidOut, setIsMapLaidOut] = useState(false);
+
+  // Tracks the current region without triggering re-renders (used inside async effects)
+  const currentRegionRef = useRef<Region>(DEFAULT_REGION);
+  // Debounce timer for re-fetching global pins when the viewport moves
+  const globalDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Increments (debounced) whenever the global viewport changes to re-trigger loadGlobal
+  const [globalFetchToken, setGlobalFetchToken] = useState(0);
 
   // Reset map-ready flag whenever the MapView remounts (reloadToken changes).
   // Without this, onMapReady fires on a fresh instance but setIsMapReady(true)
@@ -310,23 +331,31 @@ const activeCoordinates = useMemo(
     let cancelled = false;
 
     const loadGlobal = async () => {
-      setGlobalState((prev) => ({ ...prev, loading: true, error: null }));
+      // Only show the loading spinner when there are no existing pins to display.
+      // On bbox re-fetches (pan/zoom), keep showing the current pins until new ones arrive.
+      setGlobalState((prev) => ({
+        ...prev,
+        loading: prev.pins.length === 0,
+        error: null,
+      }));
+
       const online = await refreshNetworkStatus().catch(() => false);
       if (cancelled) return;
       setIsOnline(online);
 
       if (!online) {
-        setGlobalState({
-          pins: [],
+        setGlobalState((prev) => ({
+          pins: prev.pins,
           loading: false,
           error: null,
-        });
+        }));
         return;
       }
 
       try {
+        const bbox = computeBbox(currentRegionRef.current);
         const rows = await withTimeout(
-          getGlobalMapPins(),
+          getGlobalMapPins(bbox),
           MAP_LOAD_TIMEOUT_MS,
           "Loading global pins took too long."
         );
@@ -358,7 +387,7 @@ const activeCoordinates = useMemo(
     return () => {
       cancelled = true;
     };
-  }, [filterMode, isFocused, reloadToken]);
+  }, [filterMode, isFocused, reloadToken, globalFetchToken]);
 
   useEffect(() => {
     setSelectedPin(null);
@@ -438,6 +467,21 @@ const activeCoordinates = useMemo(
     updateMapViewport,
   ]);
 
+  const handleRegionChangeComplete = useCallback(
+    (region: Region) => {
+      currentRegionRef.current = region;
+      setCurrentRegion(region);
+
+      if (filterMode === "global" && isFocused) {
+        if (globalDebounceRef.current) clearTimeout(globalDebounceRef.current);
+        globalDebounceRef.current = setTimeout(() => {
+          setGlobalFetchToken((t) => t + 1);
+        }, GLOBAL_REFETCH_DEBOUNCE_MS);
+      }
+    },
+    [filterMode, isFocused]
+  );
+
   const handleZoom = (direction: "in" | "out") => {
     const factor = direction === "in" ? 0.5 : 2;
     const nextRegion = {
@@ -454,28 +498,35 @@ const activeCoordinates = useMemo(
       style={styles.container}
       onLayout={() => setIsMapLaidOut(true)}
     >
-      <MapView
+      <ClusterMapView
         key={String(reloadToken)}
-        ref={mapRef}
+        ref={mapRef as any}
         style={styles.map}
         provider={PROVIDER_GOOGLE}
         initialRegion={DEFAULT_REGION}
         onMapReady={() => setIsMapReady(true)}
-        onRegionChangeComplete={(region) => setCurrentRegion(region)}
+        onRegionChangeComplete={handleRegionChangeComplete}
         onPress={() => setSelectedPin(null)}
+        clusterColor={
+          filterMode === "mine"
+            ? "#FD7B41"
+            : filterMode === "friends"
+            ? "#4F8CFF"
+            : "#22C55E"
+        }
+        clusterTextColor="#fff"
+        radius={48}
+        minPoints={3}
       >
-        {renderablePins.map((pin) => {
-          console.log("MARKER:", pin.latitude, pin.longitude);
-          return (
-            <Marker
-              key={pin.id}
-              coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
-              pinColor={pin.markerColor}
-              onPress={() => setSelectedPin(pin)}
-            />
-          );
-        })}
-      </MapView>
+        {renderablePins.map((pin) => (
+          <Marker
+            key={pin.id}
+            coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
+            pinColor={pin.markerColor}
+            onPress={() => setSelectedPin(pin)}
+          />
+        ))}
+      </ClusterMapView>
 
       <MapZoomControls
         onZoomIn={() => handleZoom("in")}
@@ -562,34 +613,49 @@ const activeCoordinates = useMemo(
       {selectedPin && (
         <View style={[styles.calloutCard, { paddingBottom: insets.bottom + 12 }]}>
           <View style={styles.calloutRow}>
-            {selectedPin.imageUrl ? (
-              <Image source={{ uri: selectedPin.imageUrl }} style={styles.calloutImage} />
-            ) : (
-              <View style={[styles.calloutImage, styles.calloutImageFallback]}>
-                <MapPin color={COLORS.textSecondary} size={20} strokeWidth={1.5} />
-              </View>
-            )}
+            <Pressable
+              style={styles.calloutContent}
+              onPress={() => {
+                setSelectedPin(null);
+                if (selectedPin.userId === null) {
+                  router.push(`/catches/${selectedPin.id}`);
+                } else {
+                  router.push(`/user/catch/${selectedPin.id}`);
+                }
+              }}
+            >
+              {selectedPin.imageUrl ? (
+                <Image source={{ uri: selectedPin.imageUrl }} style={styles.calloutImage} />
+              ) : (
+                <View style={[styles.calloutImage, styles.calloutImageFallback]}>
+                  <MapPin color={COLORS.textSecondary} size={20} strokeWidth={1.5} />
+                </View>
+              )}
 
-            <View style={styles.calloutDetails}>
-              <Text style={styles.calloutSpecies} numberOfLines={1}>
-                {selectedPin.species || "Unknown Species"}
-              </Text>
-              {(!!selectedPin.length || !!selectedPin.weight) && (
-                <Text style={styles.calloutMeasure}>
-                  {[selectedPin.length, selectedPin.weight]
-                    .filter(Boolean)
-                    .join(" · ")}
+              <View style={styles.calloutDetails}>
+                <Text style={styles.calloutSpecies} numberOfLines={1}>
+                  {selectedPin.species || "Unknown Species"}
                 </Text>
-              )}
-              {!!selectedPin.date && (
-                <Text style={styles.calloutDate}>{selectedPin.date}</Text>
-              )}
-              {selectedPin.syncStatus === "pending" && (
-                <Text style={styles.pendingSyncText}>
-                  Saved offline. Syncing when you&apos;re back online.
-                </Text>
-              )}
-            </View>
+                {(!!selectedPin.length || !!selectedPin.weight) && (
+                  <Text style={styles.calloutMeasure}>
+                    {[selectedPin.length, selectedPin.weight]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </Text>
+                )}
+                {!!selectedPin.date && (
+                  <Text style={styles.calloutDate}>{selectedPin.date}</Text>
+                )}
+                {selectedPin.userId === null && !!selectedPin.username && (
+                  <Text style={styles.calloutUsername}>@{selectedPin.username}</Text>
+                )}
+                {selectedPin.syncStatus === "pending" && (
+                  <Text style={styles.pendingSyncText}>
+                    Saved offline. Syncing when you&apos;re back online.
+                  </Text>
+                )}
+              </View>
+            </Pressable>
 
             <Pressable style={styles.calloutClose} onPress={() => setSelectedPin(null)}>
               <X color={COLORS.textSecondary} size={18} strokeWidth={2} />
@@ -905,6 +971,12 @@ const styles = StyleSheet.create({
   calloutRow: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 8,
+  },
+  calloutContent: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
   },
   calloutImage: {
@@ -932,6 +1004,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   calloutDate: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+  },
+  calloutUsername: {
     color: COLORS.textSecondary,
     fontSize: 12,
   },

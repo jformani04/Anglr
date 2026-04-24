@@ -10,6 +10,7 @@ import {
   WeightUnit,
 } from "@/lib/profile";
 import { validateRegisterPassword } from "@/lib/validation/authValidation";
+import { checkText, checkUsername, validateImageAsset } from "@/lib/moderation";
 import Avatar from "@/components/Avatar";
 import { CatchLog, getUserCatchLogs } from "@/lib/catches";
 import { supabase } from "@/lib/supabase";
@@ -173,6 +174,11 @@ export default function ProfileScreen() {
 
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
+      const bioCheck = checkText(bio);
+      if (!bioCheck.ok) {
+        Alert.alert("Invalid Bio", bioCheck.reason);
+        return;
+      }
       try {
         setSaving(true);
         await upsertProfile(payload);
@@ -204,8 +210,15 @@ export default function ProfileScreen() {
       });
       if (result.canceled) return;
 
+      const asset = result.assets[0];
+      const check = validateImageAsset(asset);
+      if (!check.ok) {
+        Alert.alert("Photo Not Allowed", check.reason);
+        return;
+      }
+
       setUploadingAvatar(true);
-      const nextUrl = await uploadAvatar(result.assets[0].uri);
+      const nextUrl = await uploadAvatar(asset.uri);
       setAvatarUrl(nextUrl);
     } catch (err: any) {
       Alert.alert("Upload Failed", err?.message ?? "Unable to upload avatar.");
@@ -217,6 +230,11 @@ export default function ProfileScreen() {
   const handleSaveUsername = () => {
     const trimmed = username.trim();
     if (!trimmed || trimmed === savedUsername) return;
+    const usernameCheck = checkUsername(trimmed);
+    if (!usernameCheck.ok) {
+      Alert.alert("Invalid Username", usernameCheck.reason);
+      return;
+    }
     Alert.alert(
       "Change Username",
       `Save username as "${trimmed}"?`,

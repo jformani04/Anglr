@@ -312,6 +312,13 @@ export async function getFriendCatchPins(
 
 // ---- Rich map pin (includes weight/length/username for callout card) ----
 
+export type BoundingBox = {
+  minLat: number;
+  maxLat: number;
+  minLng: number;
+  maxLng: number;
+};
+
 export type FriendMapPin = {
   id: string;
   species: string;
@@ -339,6 +346,8 @@ export async function getFriendMapPins(
       .select("*")
       .in("user_id", friendIds)
       .or("is_public.eq.true,is_friends_only.eq.true")
+      .order("created_at", { ascending: false })
+      .limit(500)
   )).flatMap((row) => {
     if (row.hide_location || !hasResolvedCoordinates(row)) {
       return [];
@@ -385,16 +394,26 @@ export async function getFriendMapPins(
   });
 }
 
-export async function getGlobalMapPins(limit = 250): Promise<FriendMapPin[]> {
-  dlog("fetch global pins limit", limit);
-  const validRows = (await queryRowsWithCoordinateFallback(() =>
-    supabase
+export async function getGlobalMapPins(
+  bbox?: BoundingBox,
+  limit = 150
+): Promise<FriendMapPin[]> {
+  dlog("fetch global pins bbox", bbox);
+  const validRows = (await queryRowsWithCoordinateFallback(() => {
+    let q = supabase
       .from("catch_logs")
       .select("*")
       .eq("is_public", true)
-      .order("created_at", { ascending: false })
-      .limit(limit)
-  )).flatMap((row) => {
+      .order("created_at", { ascending: false });
+    if (bbox) {
+      q = q
+        .gte("latitude", bbox.minLat)
+        .lte("latitude", bbox.maxLat)
+        .gte("longitude", bbox.minLng)
+        .lte("longitude", bbox.maxLng);
+    }
+    return q.limit(limit);
+  })).flatMap((row) => {
     if (row.hide_location || !hasResolvedCoordinates(row)) {
       return [];
     }
