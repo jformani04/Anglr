@@ -65,23 +65,37 @@ function normalizeUnitTemp(value: unknown): TempUnit {
   return value === "fahrenheit" ? "fahrenheit" : "celsius";
 }
 
+function sanitizeUsernameCandidate(raw: string): string {
+  // Strip characters that don't match [a-zA-Z0-9_.-], collapse to max 30 chars
+  const cleaned = raw.replace(/[^a-zA-Z0-9_.\-]/g, "").slice(0, 30);
+  return cleaned.length >= 3 ? cleaned : `angler${cleaned}`.slice(0, 30);
+}
+
 async function ensureProfileRow(userId: string, email: string | undefined, username?: string) {
-  const usernameFallback = username || email?.split("@")[0] || "Angler";
+  const base = username || sanitizeUsernameCandidate(email?.split("@")[0] ?? "");
 
-  const payload = {
-    id: userId,
-    username: usernameFallback,
-    bio: "",
-    avatar_url: null,
-    units_length: "cm" as LengthUnit,
-    units_weight: "kg" as WeightUnit,
-    units_temp: "celsius" as TempUnit,
-  };
+  // Try the desired username; if it collides (unique violation = 23505), append
+  // a short numeric suffix and retry up to 5 times.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const candidate = attempt === 0 ? base : `${base.slice(0, 27)}${attempt}`;
+    const { error } = await supabase.from("profiles").upsert(
+      {
+        id: userId,
+        username: candidate,
+        bio: "",
+        avatar_url: null,
+        units_length: "cm" as LengthUnit,
+        units_weight: "kg" as WeightUnit,
+        units_temp: "celsius" as TempUnit,
+      },
+      { onConflict: "id" }
+    );
+    if (!error) return;
+    // 23505 = unique_violation — username taken, try next suffix
+    if ((error as any).code !== "23505") throw error;
+  }
 
-  const upsert = await supabase.from("profiles").upsert(payload, {
-    onConflict: "id",
-  });
-  if (upsert.error) throw upsert.error;
+  throw new Error("Could not create profile: username is unavailable. Please choose another.");
 }
 
 export async function getProfile(): Promise<Profile> {
@@ -225,6 +239,9 @@ export async function upsertProfile(updates: ProfileUpdates): Promise<void> {
 
   if (error) {
     dlog("update failed", error);
+    if ((error as any).code === "23505") {
+      throw new Error("That username is already taken. Please choose another.");
+    }
     throw error;
   }
 

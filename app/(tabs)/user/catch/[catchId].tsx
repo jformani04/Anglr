@@ -2,7 +2,7 @@ import { COLORS } from "@/lib/colors";
 import SpeciesGuideLink from "@/components/SpeciesGuideLink";
 import { getPublicCatchById, PublicCatchDetail } from "@/lib/friends";
 import { router, useLocalSearchParams } from "expo-router";
-import { ArrowLeft, Calendar, MapPin, Ruler, Thermometer, Weight } from "lucide-react-native";
+import { ArrowLeft, Calendar, Fish, MapPin, Ruler, Thermometer, Weight } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -16,7 +16,6 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const VIEW_CATCHES_ICON = require("@/assets/images/viewCatches.png");
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   if (!value?.trim()) return null;
@@ -104,7 +103,7 @@ export default function FriendCatchDetailScreen() {
           />
         ) : (
           <View style={[styles.image, styles.imageFallback]}>
-            <Image source={VIEW_CATCHES_ICON} style={styles.fallbackIcon} />
+            <Fish color={COLORS.textSecondary} size={32} strokeWidth={1.5} />
             <Text style={styles.fallbackText}>No photo</Text>
           </View>
         )}

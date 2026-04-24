@@ -11,7 +11,8 @@
     "ios": "expo run:ios",
     "ios:run": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "species:images": "node scripts/update-species-images.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

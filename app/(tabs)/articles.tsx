@@ -1,9 +1,12 @@
 import { COLORS } from "@/lib/colors";
 import { FRESHWATER_SPECIES } from "@/lib/freshwaterSpecies";
-import { speciesNameToSlug } from "@/lib/speciesArticles";
+import {
+  getSpeciesArticleSummaries,
+  speciesNameToSlug,
+} from "@/lib/speciesArticles";
 import { router } from "expo-router";
-import { ArrowLeft, Search } from "lucide-react-native";
-import { useMemo, useState } from "react";
+import { ArrowLeft, Fish, Search } from "lucide-react-native";
+import { useEffect, useMemo, useState } from "react";
 import {
   FlatList,
   Image,
@@ -18,25 +21,63 @@ type SpeciesListItem = {
   name: string;
   slug: string;
   summary: string;
+  imageUrl: string | null;
 };
 
 const LOCAL_SPECIES: SpeciesListItem[] = FRESHWATER_SPECIES.map((name) => ({
   name,
   slug: speciesNameToSlug(name),
   summary: "",
+  imageUrl: null,
 }));
-const SPECIES_ICON = require("@/assets/images/species.png");
 
 export default function ArticlesScreen() {
   const [query, setQuery] = useState("");
+  const [speciesImagesBySlug, setSpeciesImagesBySlug] = useState<
+    Record<string, string>
+  >({});
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getSpeciesArticleSummaries()
+      .then((summaries) => {
+        if (cancelled) return;
+
+        const nextImages: Record<string, string> = {};
+        for (const summary of summaries) {
+          if (summary.featuredImageUrl) {
+            nextImages[summary.slug] = summary.featuredImageUrl;
+          }
+        }
+
+        setSpeciesImagesBySlug(nextImages);
+      })
+      .catch(() => {
+        if (!cancelled) setSpeciesImagesBySlug({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const speciesList = useMemo(
+    () =>
+      LOCAL_SPECIES.map((item) => ({
+        ...item,
+        imageUrl: speciesImagesBySlug[item.slug] ?? null,
+      })),
+    [speciesImagesBySlug]
+  );
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return LOCAL_SPECIES;
-    return LOCAL_SPECIES.filter((item) =>
+    if (!normalized) return speciesList;
+    return speciesList.filter((item) =>
       item.name.toLowerCase().includes(normalized)
     );
-  }, [query]);
+  }, [query, speciesList]);
 
   return (
     <View style={styles.container}>
@@ -80,7 +121,11 @@ export default function ArticlesScreen() {
             }
           >
             <View style={styles.thumb}>
-              <Image source={SPECIES_ICON} style={styles.thumbIcon} />
+              {item.imageUrl ? (
+                <Image source={{ uri: item.imageUrl }} style={styles.thumbImage} />
+              ) : (
+                <Fish color={COLORS.textSecondary} size={28} strokeWidth={1.5} />
+              )}
             </View>
             <View style={styles.itemBody}>
               <Text style={styles.itemName}>{item.name}</Text>
@@ -172,15 +217,21 @@ const styles = StyleSheet.create({
   thumb: {
     width: 56,
     height: 56,
-    borderRadius: 999,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "transparent",
+    backgroundColor: "rgba(0,0,0,0.16)",
+    overflow: "hidden",
   },
   thumbIcon: {
-    width: 112,
-    height: 112,
+    width: 28,
+    height: 28,
     resizeMode: "contain",
+  },
+  thumbImage: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
   },
   itemBody: {
     flex: 1,

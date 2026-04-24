@@ -312,6 +312,13 @@ export async function getFriendCatchPins(
 
 // ---- Rich map pin (includes weight/length/username for callout card) ----
 
+export type BoundingBox = {
+  minLat: number;
+  maxLat: number;
+  minLng: number;
+  maxLng: number;
+};
+
 export type FriendMapPin = {
   id: string;
   species: string;
@@ -339,6 +346,8 @@ export async function getFriendMapPins(
       .select("*")
       .in("user_id", friendIds)
       .or("is_public.eq.true,is_friends_only.eq.true")
+      .order("created_at", { ascending: false })
+      .limit(500)
   )).flatMap((row) => {
     if (row.hide_location || !hasResolvedCoordinates(row)) {
       return [];
@@ -385,16 +394,26 @@ export async function getFriendMapPins(
   });
 }
 
-export async function getGlobalMapPins(limit = 250): Promise<FriendMapPin[]> {
-  dlog("fetch global pins limit", limit);
-  const validRows = (await queryRowsWithCoordinateFallback(() =>
-    supabase
+export async function getGlobalMapPins(
+  bbox?: BoundingBox,
+  limit = 150
+): Promise<FriendMapPin[]> {
+  dlog("fetch global pins bbox", bbox);
+  const validRows = (await queryRowsWithCoordinateFallback(() => {
+    let q = supabase
       .from("catch_logs")
       .select("*")
       .eq("is_public", true)
-      .order("created_at", { ascending: false })
-      .limit(limit)
-  )).flatMap((row) => {
+      .order("created_at", { ascending: false });
+    if (bbox) {
+      q = q
+        .gte("latitude", bbox.minLat)
+        .lte("latitude", bbox.maxLat)
+        .gte("longitude", bbox.minLng)
+        .lte("longitude", bbox.maxLng);
+    }
+    return q.limit(limit);
+  })).flatMap((row) => {
     if (row.hide_location || !hasResolvedCoordinates(row)) {
       return [];
     }
@@ -524,13 +543,18 @@ export type PublicCatchDetail = {
 };
 
 export async function getPublicCatchById(catchId: string): Promise<PublicCatchDetail | null> {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+  if (userError) throw userError;
+
   const { data, error } = await supabase
     .from("catch_logs")
     .select(
-      "id, image_url, species, length, weight, location, temperature, weather, lure, method, notes, date, is_public"
+      "id, user_id, image_url, species, length, weight, location, temperature, weather, lure, method, notes, date, is_public, is_friends_only"
     )
     .eq("id", catchId)
-    .eq("is_public", true)
     .single();
 
   if (error) {
@@ -539,6 +563,27 @@ export async function getPublicCatchById(catchId: string): Promise<PublicCatchDe
   }
 
   const row = data as any;
+  const isPublic = row.is_public === true;
+  const isFriendsOnly = row.is_friends_only === true;
+  const ownerId = row.user_id as string | null;
+
+  if (!isPublic) {
+    if (!isFriendsOnly || !ownerId) {
+      return null;
+    }
+
+    if (user?.id !== ownerId) {
+      if (!user) {
+        return null;
+      }
+
+      const friendship = await getFriendshipStatus(ownerId);
+      if (friendship.status !== "accepted") {
+        return null;
+      }
+    }
+  }
+
   return {
     id: row.id,
     imageUrl: row.image_url ?? "",

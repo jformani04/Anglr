@@ -13,7 +13,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useFriends } from "@/auth/FriendsProvider";
 import { router, useLocalSearchParams } from "expo-router";
-import { ArrowLeft, UserCheck, UserMinus, UserPlus } from "lucide-react-native";
+import { ArrowLeft, Calendar, Fish, MapPin, Ruler, UserCheck, UserMinus, UserPlus, Weight } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -45,11 +45,6 @@ type PublicCatch = {
   date: string;
 };
 
-const VIEW_CATCHES_ICON = require("@/assets/images/viewCatches.png");
-const RULER_ICON = require("@/assets/images/ruler.png");
-const PINPOINT_ICON = require("@/assets/images/pinpoint.png");
-const CALENDAR_ICON = require("@/assets/images/calendar.png");
-const WEIGHT_ICON = require("@/assets/images/weight.png");
 
 function parseMeasurement(val: string): number {
   const m = val.match(/[\d.]+/);
@@ -408,10 +403,7 @@ export default function UserProfileScreen() {
                     />
                   ) : (
                     <View style={[styles.thumbImage, styles.thumbFallback]}>
-                      <Image
-                        source={VIEW_CATCHES_ICON}
-                        style={styles.fallbackIcon}
-                      />
+                      <Fish color={COLORS.textSecondary} size={26} strokeWidth={1.5} />
                     </View>
                   )}
                 </View>
@@ -422,20 +414,20 @@ export default function UserProfileScreen() {
                   </Text>
 
                   <View style={styles.catchMetaRow}>
-                    <Image source={RULER_ICON} style={styles.metaIcon} />
+                    <Ruler color={COLORS.textSecondary} size={12} strokeWidth={2} />
                     <Text style={styles.metaText}>{catchLog.length || "-"}</Text>
                     <Text style={styles.dot}>•</Text>
-                    <Image source={WEIGHT_ICON} style={styles.metaIcon} />
+                    <Weight color={COLORS.textSecondary} size={12} strokeWidth={2} />
                     <Text style={styles.metaText}>{catchLog.weight || "-"}</Text>
                   </View>
 
                   <View style={styles.catchMetaRow}>
-                    <Image source={PINPOINT_ICON} style={styles.metaIconLg} />
+                    <MapPin color={COLORS.textSecondary} size={12} strokeWidth={2} />
                     <Text style={styles.locationText} numberOfLines={1}>
                       {catchLog.location || "Unknown location"}
                     </Text>
                     <Text style={styles.dot}>•</Text>
-                    <Image source={CALENDAR_ICON} style={styles.metaIconLg} />
+                    <Calendar color={COLORS.textSecondary} size={12} strokeWidth={2} />
                     <Text style={styles.dateText} numberOfLines={1}>
                       {catchLog.date || ""}
                     </Text>

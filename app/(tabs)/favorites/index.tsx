@@ -9,6 +9,7 @@ import {
   MapPin,
   RefreshCcw,
   Ruler,
+  Star,
   Weight,
 } from "lucide-react-native";
 import { useEffect, useState } from "react";
@@ -22,7 +23,6 @@ import {
   View,
 } from "react-native";
 
-const FAVORITES_ICON = require("@/assets/images/favorites.png");
 
 export default function FavoritesScreen() {
   const isFocused = useIsFocused();
@@ -117,7 +117,7 @@ export default function FavoritesScreen() {
       ) : catches.length === 0 ? (
         <View style={styles.centerCard}>
           <View style={styles.emptyIconWrap}>
-            <Image source={FAVORITES_ICON} style={styles.emptyIconImage} />
+            <Star color={COLORS.textSecondary} size={48} strokeWidth={1.5} />
           </View>
           <Text style={styles.emptyTitle}>No favorites yet</Text>
           <Text style={styles.centerSubtext}>
@@ -137,7 +137,7 @@ export default function FavoritesScreen() {
                   <Image source={{ uri: catchLog.imageUrl }} style={styles.image} />
                 ) : (
                   <View style={[styles.image, styles.imageFallback]}>
-                    <Image source={FAVORITES_ICON} style={styles.fallbackImageIcon} />
+                    <Star color={COLORS.textSecondary} size={28} strokeWidth={1.5} />
                   </View>
                 )}
                 <View style={styles.imageOverlay} />

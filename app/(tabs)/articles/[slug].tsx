@@ -5,7 +5,7 @@ import {
   getSpeciesArticleWithCache,
 } from "@/lib/speciesArticles";
 import { router, useLocalSearchParams } from "expo-router";
-import { ArrowLeft, RefreshCcw } from "lucide-react-native";
+import { ArrowLeft, Fish, RefreshCcw } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -16,7 +16,6 @@ import {
   Text,
   View,
 } from "react-native";
-const SPECIES_ICON = require("@/assets/images/species.png");
 
 const SECTION_ORDER = [
   "quick_id",
@@ -191,7 +190,7 @@ export default function SpeciesArticleScreen() {
           <Image source={{ uri: article.featuredImageUrl }} style={styles.heroImage} />
         ) : (
           <View style={[styles.heroImage, styles.heroImageFallback]}>
-            <Image source={SPECIES_ICON} style={styles.heroFallbackIcon} />
+            <Fish color={COLORS.textSecondary} size={52} strokeWidth={1.5} />
             <Text style={styles.heroFallbackText}>No image available</Text>
           </View>
         )}

@@ -8,12 +8,15 @@ import { router } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { useCallback, useEffect, useState } from "react";
 import {
+  BookOpen,
   Calendar,
+  Clock,
   Fish,
   LogOut,
   Map,
   MapPin,
   Ruler,
+  Star,
   Users,
   Weight,
 } from "lucide-react-native";
@@ -30,11 +33,6 @@ import {
 import ScanButton from "../../components/ScanButton";
 import Avatar from "@/components/Avatar";
 
-const VIEW_CATCHES_ICON = require("@/assets/images/viewCatches.png");
-const FAVORITES_ICON = require("@/assets/images/favorites.png");
-const ARTICLES_ICON = require("@/assets/images/articles.png");
-const TOTAL_CATCHES_ICON = require("@/assets/images/totalCatches.png");
-const CLOCK_ICON = require("@/assets/images/clock.png");
 
 
 export default function Home() {
@@ -176,7 +174,7 @@ export default function Home() {
           onPress={() => router.push("/catches")}
         >
           <View style={styles.actionIconSmall}>
-            <Image source={VIEW_CATCHES_ICON} style={styles.actionIconImageSmall} />
+            <Fish color={COLORS.primary} size={26} strokeWidth={2} />
           </View>
           <Text style={styles.actionText}>View Catches</Text>
         </Pressable>
@@ -186,7 +184,7 @@ export default function Home() {
           onPress={() => router.push("/favorites")}
         >
           <View style={styles.actionIconSmall}>
-            <Image source={FAVORITES_ICON} style={styles.actionIconImageSmall} />
+            <Star color={COLORS.primary} size={26} strokeWidth={2} />
           </View>
           <Text style={styles.actionText}>Favorites</Text>
         </Pressable>
@@ -197,10 +195,7 @@ export default function Home() {
         onPress={() => router.push("/articles")}
       >
         <View style={styles.fullBubbleIconWrap}>
-          <Image
-            source={ARTICLES_ICON}
-            style={styles.fullBubbleIconImage}
-          />
+          <BookOpen color={COLORS.primary} size={26} strokeWidth={2} />
         </View>
         <View style={styles.fullBubbleContent}>
           <Text style={styles.actionText}>Species Guide</Text>
@@ -252,7 +247,7 @@ export default function Home() {
         <View style={styles.statBubble}>
           <View style={styles.row}>
             <View style={styles.statIcon}>
-              <Image source={TOTAL_CATCHES_ICON} style={styles.statIconImage} />
+              <Fish color={COLORS.primary} size={24} strokeWidth={2} />
             </View>
             <Text style={styles.statLabel}>Total Catches</Text>
           </View>
@@ -275,7 +270,7 @@ export default function Home() {
       <View style={styles.activityBubble}>
         <View style={styles.row}>
           <View style={styles.activityIconWrap}>
-            <Image source={CLOCK_ICON} style={styles.activityIconImage} />
+            <Clock color={COLORS.primary} size={24} strokeWidth={2} />
           </View>
           <View style={styles.activityContent}>
             {recentCatch ? (

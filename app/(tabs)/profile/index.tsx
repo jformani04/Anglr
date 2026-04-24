@@ -10,7 +10,7 @@ import {
   WeightUnit,
 } from "@/lib/profile";
 import { validateRegisterPassword } from "@/lib/validation/authValidation";
-import Avatar from "@/components/Avatar";
+import { checkText, checkUsername, validateImageAsset } from "@/lib/moderation";
 import { CatchLog, getUserCatchLogs } from "@/lib/catches";
 import { supabase } from "@/lib/supabase";
 import * as ImagePicker from "expo-image-picker";
@@ -39,6 +39,13 @@ import {
 } from "react-native";
 
 type ModalType = "none" | "email" | "password" | "set-password";
+type ProfileDraft = {
+  bio: string;
+  unitsLength: LengthUnit;
+  unitsWeight: WeightUnit;
+  unitsTemp: TempUnit;
+  avatarUrl: string | null;
+};
 
 function parseMeasurement(val: string): number {
   const m = val.match(/[\d.]+/);
@@ -84,6 +91,10 @@ function formatMemberSince(createdAt: string | null) {
   })}`;
 }
 
+function serializeProfileDraft(draft: ProfileDraft) {
+  return JSON.stringify(draft);
+}
+
 export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -97,7 +108,6 @@ export default function ProfileScreen() {
   const [memberSince, setMemberSince] = useState("Member since -");
   const [email, setEmail] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [authProvider, setAuthProvider] = useState<string>("email");
   const [authProviders, setAuthProviders] = useState<string[]>([]);
 
   const [catchStats, setCatchStats] = useState({
@@ -111,11 +121,85 @@ export default function ProfileScreen() {
   const [passwordDraft, setPasswordDraft] = useState("");
   const [confirmPasswordDraft, setConfirmPasswordDraft] = useState("");
   const hydratedRef = useRef(false);
+  const mountedRef = useRef(true);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestDraftRef = useRef<ProfileDraft>({
+    bio: "",
+    unitsLength: "cm",
+    unitsWeight: "kg",
+    unitsTemp: "celsius",
+    avatarUrl: null,
+  });
   const lastSavedRef = useRef("");
+  const saveInFlightRef = useRef<Promise<void> | null>(null);
   // Only disable email/password controls when the user has Google but no email
   // provider. Linked accounts (both google + email) can still manage credentials.
   const isGoogleOnly = authProviders.includes("google") && !authProviders.includes("email");
+
+  const persistDraft = async (
+    draft: ProfileDraft,
+    options?: { showAlert?: boolean; updateSavingState?: boolean }
+  ) => {
+    const showAlert = options?.showAlert ?? true;
+    const updateSavingState = options?.updateSavingState ?? true;
+    latestDraftRef.current = draft;
+
+    if (saveInFlightRef.current) {
+      await saveInFlightRef.current;
+      if (serializeProfileDraft(latestDraftRef.current) === lastSavedRef.current) {
+        return;
+      }
+    }
+
+    const runSave = async () => {
+      while (true) {
+        const nextDraft = latestDraftRef.current;
+        const nextSerialized = serializeProfileDraft(nextDraft);
+
+        if (nextSerialized === lastSavedRef.current) {
+          return;
+        }
+
+        const bioCheck = checkText(nextDraft.bio);
+        if (!bioCheck.ok) {
+          if (showAlert && mountedRef.current) {
+            Alert.alert("Invalid Bio", bioCheck.reason);
+          }
+          return;
+        }
+
+        if (updateSavingState && mountedRef.current) {
+          setSaving(true);
+        }
+
+        try {
+          await upsertProfile(nextDraft);
+          lastSavedRef.current = nextSerialized;
+        } catch (err: any) {
+          if (showAlert && mountedRef.current) {
+            Alert.alert("Save Failed", err?.message ?? "Unable to save profile.");
+          }
+          return;
+        } finally {
+          if (updateSavingState && mountedRef.current) {
+            setSaving(false);
+          }
+        }
+
+        if (serializeProfileDraft(latestDraftRef.current) === lastSavedRef.current) {
+          return;
+        }
+      }
+    };
+
+    const savePromise = runSave().finally(() => {
+      if (saveInFlightRef.current === savePromise) {
+        saveInFlightRef.current = null;
+      }
+    });
+    saveInFlightRef.current = savePromise;
+    await savePromise;
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -138,15 +222,15 @@ export default function ProfileScreen() {
         setEmail(profile.email);
         setEmailDraft(profile.email);
         setAvatarUrl(profile.avatarUrl);
-        setAuthProvider(profile.authProvider);
         setAuthProviders(profile.authProviders);
-        lastSavedRef.current = JSON.stringify({
+        latestDraftRef.current = {
           bio: profile.bio,
           unitsLength: profile.unitsLength,
           unitsWeight: profile.unitsWeight,
           unitsTemp: profile.unitsTemp,
           avatarUrl: profile.avatarUrl,
-        });
+        };
+        lastSavedRef.current = serializeProfileDraft(latestDraftRef.current);
         hydratedRef.current = true;
         setCatchStats(computeCatchStats(catches));
       } catch (err: any) {
@@ -160,34 +244,44 @@ export default function ProfileScreen() {
   }, []);
 
   useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!hydratedRef.current) return;
-    const payload = {
+    const draft = {
       bio,
       unitsLength: lengthUnit,
       unitsWeight: weightUnit,
       unitsTemp: temperatureUnit,
       avatarUrl,
     };
-    const nextSerialized = JSON.stringify(payload);
+    latestDraftRef.current = draft;
+    const nextSerialized = serializeProfileDraft(draft);
     if (nextSerialized === lastSavedRef.current) return;
 
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => {
-      try {
-        setSaving(true);
-        await upsertProfile(payload);
-        lastSavedRef.current = nextSerialized;
-      } catch (err: any) {
-        Alert.alert("Save Failed", err?.message ?? "Unable to save profile.");
-      } finally {
-        setSaving(false);
-      }
+    saveTimerRef.current = setTimeout(() => {
+      void persistDraft(draft);
     }, 500);
 
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
   }, [bio, lengthUnit, weightUnit, temperatureUnit, avatarUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      const draft = latestDraftRef.current;
+      if (serializeProfileDraft(draft) === lastSavedRef.current) {
+        return;
+      }
+      void persistDraft(draft, { showAlert: false, updateSavingState: false });
+    };
+  }, []);
 
   const changeAvatar = async () => {
     try {
@@ -204,9 +298,32 @@ export default function ProfileScreen() {
       });
       if (result.canceled) return;
 
+      const asset = result.assets[0];
+      const check = validateImageAsset(asset);
+      if (!check.ok) {
+        Alert.alert("Photo Not Allowed", check.reason);
+        return;
+      }
+
       setUploadingAvatar(true);
-      const nextUrl = await uploadAvatar(result.assets[0].uri);
+      const nextUrl = await uploadAvatar(asset.uri);
       setAvatarUrl(nextUrl);
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      latestDraftRef.current = {
+        ...latestDraftRef.current,
+        avatarUrl: nextUrl,
+      };
+      setSaving(true);
+      try {
+        await upsertProfile({ avatarUrl: nextUrl });
+      } finally {
+        if (mountedRef.current) {
+          setSaving(false);
+        }
+      }
     } catch (err: any) {
       Alert.alert("Upload Failed", err?.message ?? "Unable to upload avatar.");
     } finally {
@@ -217,6 +334,11 @@ export default function ProfileScreen() {
   const handleSaveUsername = () => {
     const trimmed = username.trim();
     if (!trimmed || trimmed === savedUsername) return;
+    const usernameCheck = checkUsername(trimmed);
+    if (!usernameCheck.ok) {
+      Alert.alert("Invalid Username", usernameCheck.reason);
+      return;
+    }
     Alert.alert(
       "Change Username",
       `Save username as "${trimmed}"?`,
@@ -260,7 +382,6 @@ export default function ProfileScreen() {
       if (error) throw error;
 
       const refreshed = await getProfile();
-      setAuthProvider(refreshed.authProvider);
       setAuthProviders(refreshed.authProviders);
 
       Alert.alert("Password Set", "You can now log in with your email and this password.");
@@ -308,7 +429,6 @@ export default function ProfileScreen() {
     try {
       await linkGoogleIdentity();
       const refreshed = await getProfile();
-      setAuthProvider(refreshed.authProvider);
       setAuthProviders(refreshed.authProviders);
       Alert.alert("Linked", "Google account linked successfully.");
     } catch (err: any) {

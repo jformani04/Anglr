@@ -67,6 +67,25 @@ export function validateConfirmPassword(
   return { valid: true };
 }
 
+export function validatePhone(phone: string): ValidationResult {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 10 || digits.length > 15) {
+    return { valid: false, message: "Please enter a valid phone number (e.g. +1 555 123 4567)." };
+  }
+  return { valid: true };
+}
+
+// Converts user input to E.164 format required by Supabase.
+// If the number already starts with +, strip non-digits and re-prefix.
+// 10-digit numbers without a country code are assumed to be US (+1).
+export function normalizePhone(phone: string): string {
+  const hasPlus = phone.trimStart().startsWith("+");
+  const digits = phone.replace(/\D/g, "");
+  if (hasPlus) return "+" + digits;
+  if (digits.length === 10) return "+1" + digits;
+  return "+" + digits;
+}
+
 export function mapAuthErrorMessage(errorMessage: string): string {
   const message = errorMessage.toLowerCase();
 

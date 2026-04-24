@@ -8,13 +8,16 @@ import { COLORS } from "@/lib/colors";
 import {
   EMAIL_REGEX,
   mapAuthErrorMessage,
+  normalizePhone,
   sanitizeInput,
   validateConfirmPassword,
   validateEmail,
   validateLoginPassword,
+  validatePhone,
   validateRegisterPassword,
   validateUsername,
 } from "@/lib/validation/authValidation";
+import { checkUsername } from "@/lib/moderation";
 
 const google_icon = require("@/assets/images/google_icon.png");
 const DEBUG = process.env.EXPO_PUBLIC_DEBUG === "1";
@@ -31,8 +34,12 @@ type AuthResult =
   | { success: true; session?: any; message?: string }
   | { success: false; error: string };
 
+type PhoneStep = "enter_phone" | "enter_otp" | "enter_username";
+
 export default function AuthForm({ mode }: AuthFormProps) {
   const isLogin = mode === "login";
+
+  // ── Email tab state ─────────────────────────────────────────────────────────
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -43,6 +50,15 @@ export default function AuthForm({ mode }: AuthFormProps) {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
+
+  // ── Phone tab state ─────────────────────────────────────────────────────────
+  const [authTab, setAuthTab] = useState<"email" | "phone">("email");
+  const [phone, setPhone] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [phoneStep, setPhoneStep] = useState<PhoneStep>("enter_phone");
+  const [phoneUsername, setPhoneUsername] = useState("");
+  const [phoneSending, setPhoneSending] = useState(false);
+  const [phoneVerifying, setPhoneVerifying] = useState(false);
 
   // Tick the resend cooldown down by one second until it reaches zero.
   useEffect(() => {
@@ -287,6 +303,95 @@ export default function AuthForm({ mode }: AuthFormProps) {
     }
   };
 
+  const handleSendOtp = async () => {
+    clearErrors();
+    const normalized = normalizePhone(phone);
+    const validation = validatePhone(normalized);
+    if (!validation.valid) {
+      setFormError(validation.message ?? "Invalid phone number.");
+      return;
+    }
+    setPhoneSending(true);
+    try {
+      const { error } = await supabase.auth.signInWithOtp({ phone: normalized });
+      if (error) throw error;
+      setPhoneStep("enter_otp");
+    } catch (err: any) {
+      setFormError(err?.message ?? "Failed to send code. Please try again.");
+    } finally {
+      setPhoneSending(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    clearErrors();
+    const normalized = normalizePhone(phone);
+    setPhoneVerifying(true);
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        phone: normalized,
+        token: otpCode.trim(),
+        type: "sms",
+      });
+      if (error) throw error;
+      const user = data.user;
+      if (!user) throw new Error("Verification failed.");
+
+      const { data: existingProfile } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("id", user.id)
+        .single();
+
+      if (existingProfile) {
+        router.replace("/home");
+      } else {
+        setPhoneStep("enter_username");
+      }
+    } catch (err: any) {
+      setFormError(err?.message ?? "Invalid code. Please try again.");
+    } finally {
+      setPhoneVerifying(false);
+    }
+  };
+
+  const handlePhoneCreateProfile = async () => {
+    clearErrors();
+    const trimmed = phoneUsername.trim();
+    const usernameCheck = checkUsername(trimmed);
+    if (!usernameCheck.ok) {
+      setFormError(usernameCheck.reason);
+      return;
+    }
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Session lost. Please try again.");
+      const { error } = await supabase.from("profiles").insert({
+        id: user.id,
+        username: trimmed,
+        bio: "",
+        avatar_url: null,
+        units_length: "cm",
+        units_weight: "kg",
+        units_temp: "celsius",
+      });
+      if (error) {
+        if ((error as any).code === "23505") {
+          setFormError("That username is already taken. Please choose another.");
+        } else {
+          throw error;
+        }
+        return;
+      }
+      router.replace("/home");
+    } catch (err: any) {
+      setFormError(err?.message ?? "Failed to create profile. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (loading) return;
 
@@ -353,104 +458,208 @@ export default function AuthForm({ mode }: AuthFormProps) {
 
   return (
     <View style={styles.card}>
-      {!isLogin && (
-        <TextInput
-          placeholder="Username"
-          placeholderTextColor={COLORS.textSecondary}
-          style={styles.input}
-          autoCapitalize="none"
-          value={username}
-          onChangeText={(value) => {
-            setUsername(value);
-            clearErrors();
-          }}
-        />
-      )}
+      {/* ── Tab switcher ──────────────────────────────────────────────── */}
+      <View style={styles.tabRow}>
+        <Pressable
+          style={[styles.tab, authTab === "email" && styles.tabActive]}
+          onPress={() => { setAuthTab("email"); clearErrors(); }}
+        >
+          <Text style={[styles.tabText, authTab === "email" && styles.tabTextActive]}>Email</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.tab, authTab === "phone" && styles.tabActive]}
+          onPress={() => { setAuthTab("phone"); clearErrors(); setPhoneStep("enter_phone"); }}
+        >
+          <Text style={[styles.tabText, authTab === "phone" && styles.tabTextActive]}>Phone</Text>
+        </Pressable>
+      </View>
 
-      <TextInput
-        placeholder={isLogin ? "Email or Username" : "hello@company.com"}
-        placeholderTextColor={COLORS.textSecondary}
-        style={styles.input}
-        autoCapitalize="none"
-        keyboardType={isLogin ? "default" : "email-address"}
-        value={email}
-        onChangeText={(value) => {
-          setEmail(value);
-          clearErrors();
-        }}
-      />
-
-      <TextInput
-        placeholder="Your Password"
-        placeholderTextColor={COLORS.textSecondary}
-        secureTextEntry
-        style={styles.input}
-        value={password}
-        onChangeText={(value) => {
-          setPassword(value);
-          clearErrors();
-        }}
-      />
-
-      {!isLogin && (
-        <TextInput
-          placeholder="Confirm Password"
-          placeholderTextColor={COLORS.textSecondary}
-          secureTextEntry
-          style={styles.input}
-          value={confirmPassword}
-          onChangeText={(value) => {
-            setConfirmPassword(value);
-            clearErrors();
-          }}
-        />
-      )}
-
-      {formError && (
-        <View style={styles.errorCard}>
-          <Text style={styles.errorText}>{formError}</Text>
-        </View>
-      )}
-
-      {successMessage && (
-        <View style={styles.successCard}>
-          <Text style={styles.successText}>{successMessage}</Text>
-          {pendingVerificationEmail && (
-            resendCooldown > 0 ? (
-              <Text style={styles.resendCooldown}>
-                Resend available in {resendCooldown}s
-              </Text>
-            ) : (
-              <Text onPress={handleResendVerification} style={styles.resendLink}>
-                Resend verification email
-              </Text>
-            )
+      {/* ── Email/password flow ────────────────────────────────────────── */}
+      {authTab === "email" && (
+        <>
+          {!isLogin && (
+            <TextInput
+              placeholder="Username"
+              placeholderTextColor={COLORS.textSecondary}
+              style={styles.input}
+              autoCapitalize="none"
+              value={username}
+              onChangeText={(value) => { setUsername(value); clearErrors(); }}
+            />
           )}
-        </View>
+
+          <TextInput
+            placeholder={isLogin ? "Email or Username" : "hello@company.com"}
+            placeholderTextColor={COLORS.textSecondary}
+            style={styles.input}
+            autoCapitalize="none"
+            keyboardType={isLogin ? "default" : "email-address"}
+            value={email}
+            onChangeText={(value) => { setEmail(value); clearErrors(); }}
+          />
+
+          <TextInput
+            placeholder="Your Password"
+            placeholderTextColor={COLORS.textSecondary}
+            secureTextEntry
+            style={styles.input}
+            value={password}
+            onChangeText={(value) => { setPassword(value); clearErrors(); }}
+          />
+
+          {!isLogin && (
+            <TextInput
+              placeholder="Confirm Password"
+              placeholderTextColor={COLORS.textSecondary}
+              secureTextEntry
+              style={styles.input}
+              value={confirmPassword}
+              onChangeText={(value) => { setConfirmPassword(value); clearErrors(); }}
+            />
+          )}
+
+          {formError && (
+            <View style={styles.errorCard}>
+              <Text style={styles.errorText}>{formError}</Text>
+            </View>
+          )}
+
+          {successMessage && (
+            <View style={styles.successCard}>
+              <Text style={styles.successText}>{successMessage}</Text>
+              {pendingVerificationEmail && (
+                resendCooldown > 0 ? (
+                  <Text style={styles.resendCooldown}>Resend available in {resendCooldown}s</Text>
+                ) : (
+                  <Text onPress={handleResendVerification} style={styles.resendLink}>
+                    Resend verification email
+                  </Text>
+                )
+              )}
+            </View>
+          )}
+
+          {isLogin && (
+            <Text onPress={() => router.push("/forgot_password")} style={styles.forgotPassword}>
+              Forgot Password?
+            </Text>
+          )}
+
+          <Pressable
+            style={[styles.button, loading && { opacity: 0.7 }]}
+            disabled={loading}
+            onPress={handleSubmit}
+          >
+            <Text style={styles.buttonText}>
+              {loading ? "LOADING..." : isLogin ? "LOGIN" : "REGISTER"}
+            </Text>
+          </Pressable>
+
+          {oauthHint && (
+            <View style={styles.oauthHintCard}>
+              <Text style={styles.oauthHintText}>{oauthHint}</Text>
+            </View>
+          )}
+        </>
       )}
 
-      {isLogin && (
-        <Text onPress={() => router.push("/forgot_password")} style={styles.forgotPassword}>
-          Forgot Password?
-        </Text>
+      {/* ── Phone OTP flow ─────────────────────────────────────────────── */}
+      {authTab === "phone" && (
+        <>
+          {phoneStep === "enter_phone" && (
+            <>
+              <Text style={styles.phoneHint}>
+                Enter your phone number with country code (e.g. +1 555 123 4567).
+              </Text>
+              <TextInput
+                placeholder="+1 555 123 4567"
+                placeholderTextColor={COLORS.textSecondary}
+                style={styles.input}
+                keyboardType="phone-pad"
+                value={phone}
+                onChangeText={(v) => { setPhone(v); clearErrors(); }}
+              />
+              {formError && (
+                <View style={styles.errorCard}>
+                  <Text style={styles.errorText}>{formError}</Text>
+                </View>
+              )}
+              <Pressable
+                style={[styles.button, phoneSending && { opacity: 0.7 }]}
+                onPress={handleSendOtp}
+                disabled={phoneSending}
+              >
+                <Text style={styles.buttonText}>{phoneSending ? "SENDING..." : "SEND CODE"}</Text>
+              </Pressable>
+            </>
+          )}
+
+          {phoneStep === "enter_otp" && (
+            <>
+              <Text style={styles.phoneHint}>
+                Enter the 6-digit code sent to {phone}.
+              </Text>
+              <TextInput
+                placeholder="123456"
+                placeholderTextColor={COLORS.textSecondary}
+                style={styles.input}
+                keyboardType="number-pad"
+                maxLength={6}
+                value={otpCode}
+                onChangeText={(v) => { setOtpCode(v); clearErrors(); }}
+              />
+              {formError && (
+                <View style={styles.errorCard}>
+                  <Text style={styles.errorText}>{formError}</Text>
+                </View>
+              )}
+              <Pressable
+                style={[styles.button, phoneVerifying && { opacity: 0.7 }]}
+                onPress={handleVerifyOtp}
+                disabled={phoneVerifying}
+              >
+                <Text style={styles.buttonText}>{phoneVerifying ? "VERIFYING..." : "VERIFY"}</Text>
+              </Pressable>
+              <Text
+                style={styles.forgotPassword}
+                onPress={() => { setPhoneStep("enter_phone"); setOtpCode(""); clearErrors(); }}
+              >
+                Change phone number
+              </Text>
+            </>
+          )}
+
+          {phoneStep === "enter_username" && (
+            <>
+              <Text style={styles.phoneHint}>
+                Choose a username to complete your account setup.
+              </Text>
+              <TextInput
+                placeholder="Username"
+                placeholderTextColor={COLORS.textSecondary}
+                style={styles.input}
+                autoCapitalize="none"
+                value={phoneUsername}
+                onChangeText={(v) => { setPhoneUsername(v); clearErrors(); }}
+              />
+              {formError && (
+                <View style={styles.errorCard}>
+                  <Text style={styles.errorText}>{formError}</Text>
+                </View>
+              )}
+              <Pressable
+                style={[styles.button, loading && { opacity: 0.7 }]}
+                onPress={handlePhoneCreateProfile}
+                disabled={loading}
+              >
+                <Text style={styles.buttonText}>{loading ? "SAVING..." : "CONTINUE"}</Text>
+              </Pressable>
+            </>
+          )}
+        </>
       )}
 
-      <Pressable
-        style={[styles.button, loading && { opacity: 0.7 }]}
-        disabled={loading}
-        onPress={handleSubmit}
-      >
-        <Text style={styles.buttonText}>
-          {loading ? "LOADING..." : isLogin ? "LOGIN" : "REGISTER"}
-        </Text>
-      </Pressable>
-
-      {oauthHint && (
-        <View style={styles.oauthHintCard}>
-          <Text style={styles.oauthHintText}>{oauthHint}</Text>
-        </View>
-      )}
-
+      {/* ── Google — shown on both tabs ────────────────────────────────── */}
       <View style={styles.orContainer}>
         <View style={styles.line} />
         <Text style={styles.orText}>OR</Text>
@@ -613,5 +822,35 @@ const styles = StyleSheet.create({
   privacyLink: {
     color: COLORS.primary,
     textDecorationLine: "underline",
+  },
+  tabRow: {
+    flexDirection: "row",
+    marginBottom: 20,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 12,
+    padding: 4,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+    borderRadius: 10,
+  },
+  tabActive: {
+    backgroundColor: COLORS.primary,
+  },
+  tabText: {
+    color: COLORS.textSecondary,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  tabTextActive: {
+    color: "#000",
+  },
+  phoneHint: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 14,
   },
 });

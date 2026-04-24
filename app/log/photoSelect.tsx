@@ -1,4 +1,5 @@
 import { COLORS } from "@/lib/colors";
+import { validateImageAsset } from "@/lib/moderation";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { ArrowLeft, Camera, Image as ImageIcon } from "lucide-react-native";
@@ -32,7 +33,14 @@ async function handleTakePhoto() {
     allowsEditing: false,
     quality: 0.9,
   });
-  if (!result.canceled) navigateToReview(result.assets[0].uri);
+  if (result.canceled) return;
+  const asset = result.assets[0];
+  const check = validateImageAsset(asset);
+  if (!check.ok) {
+    Alert.alert("Photo Not Allowed", check.reason);
+    return;
+  }
+  navigateToReview(asset.uri);
 }
 
 async function handleChooseFromLibrary() {
@@ -42,7 +50,14 @@ async function handleChooseFromLibrary() {
     allowsEditing: false,
     quality: 0.9,
   });
-  if (!result.canceled) navigateToReview(result.assets[0].uri);
+  if (result.canceled) return;
+  const asset = result.assets[0];
+  const check = validateImageAsset(asset);
+  if (!check.ok) {
+    Alert.alert("Photo Not Allowed", check.reason);
+    return;
+  }
+  navigateToReview(asset.uri);
 }
 
 export default function PhotoSelectScreen() {
