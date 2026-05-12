@@ -616,7 +616,7 @@ export default function EditCatchScreen() {
       }
 
       setUploadingImage(true);
-      const publicUrl = await uploadCatchPhoto(asset.uri);
+      const publicUrl = await uploadCatchPhoto(asset.uri, asset.mimeType);
       setField("imageUrl", publicUrl);
       setPendingLocalUri(null);
     } catch (err: any) {

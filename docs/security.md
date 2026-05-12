@@ -23,18 +23,30 @@ Verify before shipping: `grep -r "service_role" fish-app/app fish-app/lib fish-a
 
 ### Google Maps API Key
 
-**Status: Needs attention before launch.**
+**Status: Action required before Play Store submission.**
 
-The Google Maps API key is in `app.json`:
-```json
-"googleMaps": { "apiKey": "AIzaSyCdsxNaAwVRc3NKKptYKAODzfuew2AvuU8" }
-```
+The Google Maps API key is embedded in the Android build via `app.json` and will be extractable from the APK by anyone. An unrestricted key can be abused to incur billing charges on your Google Cloud account.
 
-This key is embedded in the APK and can be extracted. **It must be restricted** in the Google Cloud Console:
-- Restrict to **Maps SDK for Android**
-- Restrict by **Android app** with SHA-1 and package name `com.anglr`
+**Required restrictions — Google Cloud Console → APIs & Services → Credentials:**
 
-Without restrictions, the key can be used by anyone to incur billing charges.
+1. **API restrictions** — limit to the following APIs only:
+   - Maps SDK for Android
+   - (iOS key, if separate) Maps SDK for iOS
+
+2. **Application restrictions (Android key)**:
+   - Select "Android apps"
+   - Add an entry: package name `com.anglr` + the SHA-1 of your release signing certificate
+   - To get the release SHA-1: `keytool -list -v -keystore <your-release.jks> -alias <key-alias>`
+   - Or from EAS: `eas credentials` → select Android → view the keystore fingerprint
+
+3. **iOS** (if/when an iOS Maps key is needed):
+   - Create a separate key restricted to "iOS apps"
+   - Add bundle ID `com.anglr`
+   - Store it in `app.json` under `expo.ios.config.googleMapsApiKey`
+
+**Do not commit a separate iOS key or any key with billing scope until restrictions are in place.**
+
+Until restrictions are applied, monitor usage at console.cloud.google.com/google/maps-apis/metrics and set a billing alert.
 
 ---
 

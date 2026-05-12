@@ -104,34 +104,74 @@ export async function sendFriendRequest(receiverId: string): Promise<void> {
 }
 
 export async function acceptFriendRequest(requestId: string): Promise<void> {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+  if (userError) throw userError;
+  if (!user) throw new Error("No authenticated user");
+
+  // Defense-in-depth: only the intended receiver may accept. RLS enforces the
+  // same rule server-side; this filter ensures the query fails rather than
+  // silently succeeding on a row the caller does not own.
   const { error } = await supabase
     .from("friendships")
     .update({ status: "accepted" })
-    .eq("id", requestId);
+    .eq("id", requestId)
+    .eq("receiver_id", user.id);
   if (error) throw error;
 }
 
 export async function declineFriendRequest(requestId: string): Promise<void> {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+  if (userError) throw userError;
+  if (!user) throw new Error("No authenticated user");
+
+  // Defense-in-depth: only the receiver may decline a pending request.
   const { error } = await supabase
     .from("friendships")
     .delete()
-    .eq("id", requestId);
+    .eq("id", requestId)
+    .eq("receiver_id", user.id);
   if (error) throw error;
 }
 
 export async function cancelFriendRequest(requestId: string): Promise<void> {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+  if (userError) throw userError;
+  if (!user) throw new Error("No authenticated user");
+
+  // Defense-in-depth: only the requester may cancel their own outgoing request.
   const { error } = await supabase
     .from("friendships")
     .delete()
-    .eq("id", requestId);
+    .eq("id", requestId)
+    .eq("requester_id", user.id);
   if (error) throw error;
 }
 
 export async function removeFriend(requestId: string): Promise<void> {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+  if (userError) throw userError;
+  if (!user) throw new Error("No authenticated user");
+
+  // Defense-in-depth: either party may remove an accepted friendship.
+  // PostgREST does not support OR across columns in a single .or() with .eq()
+  // on the same field, so we use the PostgREST or() filter syntax.
   const { error } = await supabase
     .from("friendships")
     .delete()
-    .eq("id", requestId);
+    .eq("id", requestId)
+    .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`);
   if (error) throw error;
 }
 

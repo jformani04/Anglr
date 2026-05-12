@@ -406,7 +406,28 @@ export async function getMapCatchPins(userId: string): Promise<MapCatchPin[]> {
   }
 }
 
-export async function uploadCatchPhoto(fileUri: string): Promise<string> {
+const ALLOWED_CATCH_PHOTO_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+]);
+
+function resolveCatchPhotoContentType(fileUri: string): string {
+  const lower = fileUri.toLowerCase().split("?")[0];
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".heic")) return "image/heic";
+  if (lower.endsWith(".heif")) return "image/heif";
+  return "image/jpeg";
+}
+
+export async function uploadCatchPhoto(
+  fileUri: string,
+  mimeType?: string | null
+): Promise<string> {
   const {
     data: { user },
     error: userError,
@@ -415,12 +436,20 @@ export async function uploadCatchPhoto(fileUri: string): Promise<string> {
   if (userError) throw userError;
   if (!user) throw new Error("No authenticated user");
 
-  const filePath = `${user.id}/${Date.now()}.jpg`;
+  // Prefer the explicit mimeType from the picker; fall back to URI extension.
+  // Unknown or unsupported types default to JPEG so uploads always proceed.
+  const normalizedMime = mimeType?.toLowerCase() ?? "";
+  const contentType = ALLOWED_CATCH_PHOTO_TYPES.has(normalizedMime)
+    ? normalizedMime
+    : resolveCatchPhotoContentType(fileUri);
+
+  const ext = contentType.split("/")[1].replace("jpeg", "jpg").replace("heif", "heic");
+  const filePath = `${user.id}/${Date.now()}.${ext}`;
   const uploadBody = await fileUriToUploadBody(fileUri);
 
   const { error: uploadError } = await withTimeout(
     supabase.storage.from("catch_photos").upload(filePath, uploadBody, {
-      contentType: "image/jpeg",
+      contentType,
       upsert: false,
     }),
     REQUEST_TIMEOUT_MS,

@@ -394,7 +394,7 @@ const activeCoordinates = useMemo(
   }, [filterMode, selectedFriendId]);
 
   const updateMapViewport = useCallback(() => {
-    console.log("MAP DEBUG", {
+    dlog("viewport", {
       isMapReady,
       isMapLaidOut,
       activePins: activePins.length,

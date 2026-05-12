@@ -3,12 +3,14 @@ import * as AuthSession from "expo-auth-session";
 import * as QueryParams from "expo-auth-session/build/QueryParams";
 import { supabase } from "@/lib/supabase";
 
+const DEBUG = process.env.EXPO_PUBLIC_DEBUG === "1";
+
 WebBrowser.maybeCompleteAuthSession();
 let googleSignInInFlight = false;
 
 export async function signInWithGoogle() {
   if (googleSignInInFlight) {
-    console.log("Google login already in progress");
+    if (DEBUG) console.log("[google] sign-in already in progress");
     return;
   }
 
@@ -129,9 +131,9 @@ export async function signInWithGoogle() {
       }
     }
 
-    console.log("Google login successful and profile ready");
+    if (DEBUG) console.log("[google] sign-in successful");
   } catch (err: any) {
-    console.error("Google login error:", err.message);
+    console.error("[google] sign-in error:", err.message);
     throw err;
   } finally {
     googleSignInInFlight = false;

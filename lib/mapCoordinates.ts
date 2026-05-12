@@ -1,3 +1,5 @@
+const DEBUG = process.env.EXPO_PUBLIC_DEBUG === "1";
+
 type CoordinateRecord = Record<string, unknown>;
 
 export type CoordinateFieldPair = {
@@ -18,6 +20,7 @@ const COORDINATE_FIELD_PAIRS: CoordinateFieldPair[] = [
 ];
 
 export function logCoordinatePair(message: string, pair: CoordinateFieldPair) {
+  if (!DEBUG) return;
   console.log(message, pair);
 }
 
@@ -159,7 +162,6 @@ export function getCoordinatePayloadVariants(payload: Record<string, unknown>) {
 export async function queryRowsWithCoordinateFallback(
   runQuery: () => PromiseLike<{ data: unknown[] | null; error: unknown }>
 ) {
-  console.log("RUNNING QUERY WITH:", "select(*) + normalize coordinates");
   const result = await runQuery();
 
   if (result.error) {
@@ -167,7 +169,7 @@ export async function queryRowsWithCoordinateFallback(
   }
 
   const rawRows = (result.data ?? []) as CoordinateRecord[];
-  if (rawRows.length > 0) {
+  if (DEBUG && rawRows.length > 0) {
     console.log("catch_logs row keys:", Object.keys(rawRows[0]));
   }
 
